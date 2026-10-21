@@ -1,6 +1,11 @@
 download/
 src/
+src-*/
 install/
 build.log
 *.tar.xz
 .pi/
+# generated Docker build context (regenerate with ./docker/prepare.sh)
+docker/optfil-lib/
+docker/php-cli/
+docker/php-fpm/

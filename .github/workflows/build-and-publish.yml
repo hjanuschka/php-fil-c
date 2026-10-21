@@ -1,0 +1,73 @@
+name: build-and-publish
+
+# Rebuilds PHP with Fil-C from source and publishes CLI + FPM images to GHCR.
+# Manual trigger, or push a `v*` tag. Images are built from the patched PHP
+# version pinned in build.sh (currently 8.4.27, which contains the fixes for
+# CVE-2026-109618 / CVE-2026-109619).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository }}
+  FILC_VERSION: "0.686"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison re2c autoconf pkg-config curl ca-certificates \
+            libssl-dev zlib1g-dev libbz2-dev libcurl4-openssl-dev \
+            libicu-dev libonig-dev libedit-dev libpcre2-dev libxml2-dev
+
+      - name: Install Fil-C (/opt/fil)
+        run: |
+          set -euo pipefail
+          curl -fLO "https://github.com/pizlonator/fil-c/releases/download/v${FILC_VERSION}/optfil-${FILC_VERSION}-linux-x86_64.tar.xz"
+          tar -xf "optfil-${FILC_VERSION}-linux-x86_64.tar.xz"
+          ( cd "optfil-${FILC_VERSION}-linux-x86_64" && sudo ./setup.sh -u )
+          /opt/fil/bin/filcc --version | head -1
+
+      - name: Build PHP with Fil-C
+        run: ./build.sh
+
+      - name: Assemble Docker context
+        run: ./docker/prepare.sh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          V=$(grep -m1 '^PHP_VERSION=' build.sh | cut -d'"' -f2)
+          for sapi in cli fpm; do
+            docker build --target "$sapi" -t "$IMAGE:$V-$sapi-bookworm" docker
+            docker tag "$IMAGE:$V-$sapi-bookworm" "$IMAGE:8.4-$sapi-bookworm"
+            docker tag "$IMAGE:$V-$sapi-bookworm" "$IMAGE:8-$sapi-bookworm"
+            docker tag "$IMAGE:$V-$sapi-bookworm" "$IMAGE:$sapi-bookworm"
+            for t in "$V-$sapi-bookworm" "8.4-$sapi-bookworm" "8-$sapi-bookworm" "$sapi-bookworm"; do
+              docker push "$IMAGE:$t"
+            done
+          done
+
+      - name: Smoke test pushed image
+        run: |
+          docker run --rm --entrypoint php "$IMAGE:cli-bookworm" -r 'echo "published ok: ", PHP_VERSION, "\n";'
