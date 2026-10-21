@@ -1,15 +1,15 @@
-<div align="center">
+<p align="center">
+  <img src="docs/header.svg" alt="php-fil-c" width="900"/>
+</p>
 
-```
-____  __  __   _____ _     ____
-|  _ \/  \/  |_|  ___(_) __| _ \
-| | | | |\/| || |  | | |/ _`  /   memory-safe PHP, from source
-| |_| | |  | || |__| | | (_| /     built with the Fil-C compiler
-|____/|_|  |_|\____|_|_|\__,_|
-```
+<p align="center">
+  <em>memory-safe PHP, from source.</em>
+</p>
 
-**PHP 8.4 compiled with [Fil-C](https://fil-c.org) -- capability-based memory
-safety, no `unsafe`, runs on stock x86_64 Linux.**
+<p align="center">
+PHP 8.4 compiled with <a href="https://fil-c.org">Fil-C</a> -- capability-based
+memory safety, no <code>unsafe</code>, runs on stock x86_64 Linux.
+</p>
 
 [![build-and-publish](https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml/badge.svg)](https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml)
 ![PHP](https://img.shields.io/badge/PHP-8.4.27-777BB4?logo=php&logoColor=white)

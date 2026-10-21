@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="php-fil-c">
+  <rect width="1200" height="320" fill="#15151b"/>
+
+  <!-- PHP elephant glyph, simplified, in PHP purple -->
+  <g fill="#777bb3">
+    <ellipse cx="118" cy="150" rx="58" ry="46"/>
+    <ellipse cx="150" cy="176" rx="30" ry="26"/>
+    <path d="M 150 188 q 26 10 30 40 q 2 16 -10 20 q -12 4 -16 -10 q -4 -16 -18 -22 z"/>
+    <circle cx="138" cy="140" r="5" fill="#15151b"/>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace">
+    <text x="214" y="158" font-size="62" font-weight="700" fill="#e8e8ee">php<tspan fill="#777bb3">-</tspan>fil<tspan fill="#53b584">-c</tspan></text>
+    <text x="216" y="200" font-size="23" fill="#9292a2">PHP built from source with the</text>
+    <text x="216" y="234" font-size="23" fill="#9292a2">memory-safe <tspan fill="#53b584">Fil-C</tspan> compiler</text>
+  </g>
+
+  <!-- memory-safety shield: a grid of memory cells, one out-of-bounds cell blocked -->
+  <g>
+    <rect x="876" y="56" width="268" height="208" rx="22" fill="#1d1d26"/>
+
+    <!-- grid of memory cells -->
+    <g fill="#373746">
+      <rect x="904" y="84"  width="46" height="30" rx="6"/>
+      <rect x="958" y="84"  width="46" height="30" rx="6"/>
+      <rect x="1012" y="84" width="46" height="30" rx="6"/>
+      <rect x="904" y="122" width="46" height="30" rx="6"/>
+      <rect x="1012" y="122" width="46" height="30" rx="6"/>
+      <rect x="904" y="160" width="46" height="30" rx="6"/>
+      <rect x="958" y="160" width="46" height="30" rx="6"/>
+      <rect x="1012" y="160" width="46" height="30" rx="6"/>
+    </g>
+    <!-- the guarded cell: green (in-bounds capability) -->
+    <rect x="958" y="122" width="46" height="30" rx="6" fill="#53b584"/>
+    <!-- out-of-bounds pointer blocked with a red bar -->
+    <rect x="1078" y="122" width="46" height="30" rx="6" fill="#2b2b38"/>
+    <g stroke="#e05c5c" stroke-width="6" stroke-linecap="round">
+      <line x1="1086" y1="130" x2="1116" y2="146"/>
+      <line x1="1116" y1="130" x2="1086" y2="146"/>
+    </g>
+
+    <rect x="900" y="204" width="220" height="38" rx="19" fill="#2b2b38"/>
+    <text x="1010" y="230" text-anchor="middle" font-size="21" font-weight="700"
+          letter-spacing="3" fill="#53b584"
+          font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace">MEMORY SAFE</text>
+  </g>
+</svg>

@@ -9,3 +9,4 @@ build.log
 docker/optfil-lib/
 docker/php-cli/
 docker/php-fpm/
+docs/header-preview.png
