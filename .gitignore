@@ -1,0 +1,6 @@
+download/
+src/
+install/
+build.log
+*.tar.xz
+.pi/
