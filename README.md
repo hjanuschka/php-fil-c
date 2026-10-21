@@ -1,127 +1,177 @@
-# php-fil-c
+<div align="center">
 
-> **Security hold:** The 8.4.25 build described below is affected by
+```
+____  __  __   _____ _     ____
+|  _ \/  \/  |_|  ___(_) __| _ \
+| | | | |\/| || |  | | |/ _`  /   memory-safe PHP, from source
+| |_| | |  | || |__| | | (_| /     built with the Fil-C compiler
+|____/|_|  |_|\____|_|_|\__,_|
+```
+
+**PHP 8.4 compiled with [Fil-C](https://fil-c.org) -- capability-based memory
+safety, no `unsafe`, runs on stock x86_64 Linux.**
+
+[![build-and-publish](https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml/badge.svg)](https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml)
+![PHP](https://img.shields.io/badge/PHP-8.4.27-777BB4?logo=php&logoColor=white)
+![Fil-C](https://img.shields.io/badge/Fil--C-0.686-2ea44f)
+![platform](https://img.shields.io/badge/platform-linux%20amd64-lightgrey)
+![license](https://img.shields.io/badge/license-PHP--3.0-blue)
+
+</div>
+
+---
+
+Prebuilt, **patched** PHP images (CLI and FPM) plus a from-source build script,
+all compiled with [Fil-C](https://fil-c.org) -- a memory-safe C compiler that
+catches every out-of-bounds, use-after-free and type confusion as a panic
+instead of letting it become an exploit.
+
+> **Security status.** The published images are built from **PHP 8.4.27**, the
+> first 8.4 release containing the fixes for
 > [CVE-2026-109618](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w)
 > and [CVE-2026-109619](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp).
-> Do not use it for untrusted input or deploy it. No Docker images have been
-> published. A port to patched PHP 8.4.27 is in progress; the build is disabled
-> until its OPcache regressions are resolved. Rebuild existing installs once a
-> validated release is available.
+> The earlier 8.4.25 build in this repo's history is **vulnerable** and is no
+> longer built or published. Fil-C is defence-in-depth, **not** a substitute for
+> PHP security updates -- see [Security](#security).
 
-PHP 8.4 built from source with [Fil-C](https://fil-c.org/), the memory-safe
-C/C++ compiler (capability-based memory safety, GC-backed, runs on stock
-x86_64/ARM64 Linux).
+## Images
 
-This repo contains a standalone build script and the patch needed to compile
-PHP with Fil-C, adapted from the upstream
+Hosted on GitHub Container Registry. `linux/amd64`.
+
+```sh
+# CLI
+docker run --rm ghcr.io/hjanuschka/php-fil-c:cli-bookworm -v
+docker run --rm -v "$PWD:/var/www/html" ghcr.io/hjanuschka/php-fil-c:cli-bookworm script.php
+
+# FPM (port 9000, front it with nginx/Apache)
+docker run -d -p 127.0.0.1:9000:9000 ghcr.io/hjanuschka/php-fil-c:fpm-bookworm
+```
+
+| Tag | SAPI | PHP |
+|-----|------|-----|
+| `cli-bookworm`, `8-cli-bookworm`, `8.4-cli-bookworm`, `8.4.27-cli-bookworm` | CLI | 8.4.27 |
+| `fpm-bookworm`, `8-fpm-bookworm`, `8.4-fpm-bookworm`, `8.4.27-fpm-bookworm` | FPM | 8.4.27 |
+
+Built by the [`build-and-publish`](../../actions/workflows/build-and-publish.yml)
+workflow from this repo's `build.sh` + `docker/`.
+
+### nginx + FPM example
+
+```yaml
+# docker-compose.yml
+services:
+  fpm:
+    image: ghcr.io/hjanuschka/php-fil-c:fpm-bookworm
+    volumes: [./app:/var/www/html]
+  nginx:
+    image: nginx:alpine
+    ports: ["8080:80"]
+    volumes:
+      - ./app:/var/www/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+```
+
+```nginx
+# nginx.conf
+server {
+  listen 80; root /var/www/html; index index.php;
+  location ~ \.php$ {
+    fastcgi_pass fpm:9000;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME /var/www/html$fastcgi_script_name;
+  }
+}
+```
+
+## Build from source
+
+Prerequisite: the Fil-C `/opt/fil` glibc distribution (the glibc build is
+required -- fibers use `ucontext`, which Fil-C only implements in its glibc).
+
+```sh
+curl -LO https://github.com/pizlonator/fil-c/releases/download/v0.686/optfil-0.686-linux-x86_64.tar.xz
+tar -xf optfil-0.686-linux-x86_64.tar.xz
+cd optfil-0.686-linux-x86_64 && sudo ./setup.sh -u     # installs to /opt/fil
+```
+
+Then:
+
+```sh
+./build.sh                       # downloads, patches, compiles, installs to ./install
+./install/bin/php -v
+```
+
+`build.sh` pins the PHP tarball by sha256, applies
+`patches/php-8.4.27-filc.patch`, configures with `CC=/opt/fil/bin/filcc`, and
+runs a smoke test (WeakMap, fibers, `Dom\HTMLDocument`, overflow arithmetic,
+tracked allocator). It prints `php ok` on success.
+
+Build your own image:
+
+```sh
+./docker/prepare.sh              # assemble docker/ context from ./install
+docker build --target cli -t php-fil-c:cli docker
+docker build --target fpm -t php-fil-c:fpm docker
+```
+
+## What Fil-C changes here
+
+Fil-C is a drop-in C compiler (clang 20 based) that gives every pointer a
+hidden capability and checks every access. PHP needs a small port patch (all
+`#ifdef __FILC__`, a no-op for normal builds) for the places that store
+pointers as integers or use tricky asm:
+
+- **Pointer-as-integer sites** -- weakref/WeakMap keys, typed-property source
+  lists, and ext/dom's bundled lexbor name IDs are retagged via pointer
+  arithmetic or a weak `zexact_ptrtable`.
+- **Inline asm** -- portable C paths for `zend_safe_address`, string compare
+  and `fast_long_*`; `xgetbv` spelled as an instruction.
+- **Fibers** -- built `--disable-fiber-asm` so fibers use `ucontext`.
+- **OPcache** -- shared memory mapped `MAP_PRIVATE` (capabilities are
+  per-process).
+- **Allocator** -- defaults to PHP's tracked system allocator so each value
+  gets its own capability and use-after-free between values is caught.
+
+Adapted from the upstream
 [`php.projeny`](https://github.com/pizlonator/fil-c/blob/deluge/projects/php.projeny)
 port by Filip Pizlo.
 
-## Status
+## Known limitations
 
-- PHP 8.4.25, CLI + FPM + OPcache (no JIT), built with Fil-C 0.686
-- `Zend/tests`: 4863/4865 pass (1 perf-sensitive timeout, see Caveats)
-- `ext/openssl`, `ext/json`, `ext/filter`: 407/407 pass (3 expected fails)
-- Verified working: WeakMap, fibers (ucontext), `Dom\HTMLDocument` (lexbor),
-  opcache, openssl, curl, intl, mbstring, bz2, readline, pcntl, sockets
-
-## Prerequisites
-
-1. Linux x86_64 (or use the aarch64 Fil-C build).
-2. The Fil-C `/opt/fil` glibc distribution. The glibc-based distro is required
-   (not the classic musl one) because the port runs fibers on `ucontext`,
-   which Fil-C only implements in its glibc:
-
-   ```sh
-   curl -LO https://github.com/pizlonator/fil-c/releases/download/v0.686/optfil-0.686-linux-x86_64.tar.xz
-   tar -xf optfil-0.686-linux-x86_64.tar.xz
-   cd optfil-0.686-linux-x86_64 && sudo ./setup.sh -u   # installs to /opt/fil
-   ```
-
-   `/opt/fil` also provides everything the PHP build links against
-   (openssl, zlib, bzip2, curl, libxml2, icu, libedit, pcre2), all compiled
-   with Fil-C.
-
-## Build
-
-```sh
-./build.sh                       # -> ./install (default PREFIX)
-PREFIX=/opt/php-fil-c ./build.sh # or pick a prefix
-```
-
-`build.sh` downloads `php-8.4.25.tar.xz`, verifies the sha256, applies
-`patches/php-8.4.25-filc.patch`, configures with `CC=/opt/fil/bin/filcc`,
-builds, installs, and runs a smoke test exercising exactly the code the patch
-touches (WeakMap keys, fiber stack limits, lexbor name IDs, overflow
-arithmetic, opcache, the tracked allocator). It prints `php ok` on success.
-
-## Use
-
-```sh
-./install/bin/php -v
-./install/bin/php script.php
-./install/sbin/php-fpm            # copy etc/php-fpm.conf.default if missing
-```
-
-The binary is dynamically linked against the Fil-C runtime and libc
-(`/opt/fil/lib/ld-fil1-x86_64.so` is the interpreter), so keep `/opt/fil`
-around.
-
-Fil-C can abort on invalid pointer operations in PHP's C code or Fil-C-built
-extensions. This does not replace PHP security fixes or guarantee that a
-specific vulnerability cannot lead to code execution, e.g.:
-
-```
-filc safety error: cannot read pointer with null object.
-filc panic: thwarted a futile attempt to violate memory safety.
-```
-
-## What the patch does
-
-All changes are guarded by `#ifdef __FILC__`, so the patch is a no-op for
-normal builds. In short (details in the patch header):
-
-- **Pointer-as-integer sites.** Fil-C drops a pointer's capability when it is
-  cast to an integer. The patch retags the places that store pointers as
-  integers: weakref/WeakMap keys and typed-property source lists (tagged via
-  pointer arithmetic or a weak `zexact_ptrtable`), and ext/dom's bundled
-  lexbor name IDs.
-- **Inline asm.** Uses portable C paths for `zend_safe_address`, string
-  compare, and `fast_long_*` (Fil-C crashes on the `asm goto` variants), and
-  spells `xgetbv` as an instruction.
-- **Fibers.** Built `--disable-fiber-asm` so fibers use `ucontext`; the fiber
-  stack limit is measured from the fiber's first frame.
-- **OPcache.** The shared memory segment is mapped `MAP_PRIVATE` because
-  capabilities are per-process; `opcache_reset()`/`opcache_invalidate()`
-  become per-process.
-- **Allocator.** Defaults to PHP's *tracked system allocator* (like PHP's
-  ASan CI config) instead of Zend's 2 MiB-chunk allocator, so every PHP value
-  gets its own capability and use-after-free between values is caught.
-  `USE_ZEND_ALLOC=1` restores Zend's allocator (weaker safety),
-  `USE_TRACKED_ALLOC=0` untracked malloc.
-
-## Caveats
-
-- **No JIT.** `--without-pcre-jit --disable-opcache-jit`: Fil-C cannot execute
-  generated machine code.
+- **No JIT.** `--without-pcre-jit --disable-opcache-jit` -- Fil-C cannot
+  execute generated machine code.
+- **OPcache off by default.** The port currently panics when OPcache persists
+  certain classes; the images ship `opcache.enable=0`. Tracked in the repo.
 - **Performance.** Capability checks + GC make PHP noticeably slower than
-  native. `Zend/tests/concat_003.phpt` (a perf-sensitive string-concat test)
-  times out; set `SKIP_PERF_SENSITIVE=1` when running the suite.
-- **OPcache semantics.** With FPM, cached scripts are inherited at fork;
-  `opcache_reset()` only affects the calling worker.
-- **phpdbg** is not usable (userfaultfd unsupported); configure is told so.
-- Extensions not built here (no Fil-C-built libs in `/opt/fil`): gd, sqlite3,
-  xsl, ldap, gmp. Everything else in the configure line works.
+  native. This is a safety research build, not a production replacement.
+- **Extensions not built** (no Fil-C-built lib in `/opt/fil`): gd, sqlite3,
+  xsl, ldap, gmp.
+- **`linux/amd64` only** for now.
+
+## Security
+
+Fil-C turns memory-safety violations (the OOB read, the use-after-free) into a
+**panic** rather than an exploitable primitive, which is exactly the class of
+bug behind the recent PHP session/OOM RCEs. It does **not** fix the underlying
+logic, and a stale pointer kept alive by the GC may not panic at all -- so the
+images are built from **patched** PHP, and Fil-C is layered on top as
+defence-in-depth.
+
+`experiments/filc-vs-rce/` documents an attempt to reproduce the
+[CVE-2026-109618/109619](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w)
+mechanism against unpatched Fil-C PHP.
 
 ## Layout
 
 ```
-build.sh                        one-shot build + smoke test
-patches/php-8.4.25-filc.patch   the Fil-C port patch (from upstream php.projeny)
-download/, src/, install/       created by build.sh (gitignored)
+build.sh                 one-shot source build + smoke test
+patches/                 Fil-C port patch per PHP version
+docker/                  Dockerfile (cli + fpm targets), prepare.sh, php.ini
+.github/workflows/       build-and-publish (GHCR)
+experiments/             Fil-C vs PHP RCE experiment + results
+PLAN.md                  release/security plan
 ```
 
 ## License
 
-PHP is PHP-3.0 (see `src/LICENSE`). The Fil-C distribution is LLVM/PAS
-licensed. This repo's scripts: MIT.
+PHP is PHP-3.0. Fil-C is LLVM/PAS licensed. This repo's scripts: MIT.
