@@ -9,6 +9,10 @@
 #
 set -euo pipefail
 
+echo "PHP 8.4.25 is affected by CVE-2026-109618 and CVE-2026-109619." >&2
+echo "Build disabled until the patched PHP/Fil-C port is validated." >&2
+exit 1
+
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 FILC_ROOT="${FILC_ROOT:-/opt/fil}"
 PHP_VERSION="${PHP_VERSION:-8.4.25}"

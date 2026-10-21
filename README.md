@@ -1,5 +1,13 @@
 # php-fil-c
 
+> **Security hold:** The 8.4.25 build described below is affected by
+> [CVE-2026-109618](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w)
+> and [CVE-2026-109619](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp).
+> Do not use it for untrusted input or deploy it. No Docker images have been
+> published. A port to patched PHP 8.4.27 is in progress; the build is disabled
+> until its OPcache regressions are resolved. Rebuild existing installs once a
+> validated release is available.
+
 PHP 8.4 built from source with [Fil-C](https://fil-c.org/), the memory-safe
 C/C++ compiler (capability-based memory safety, GC-backed, runs on stock
 x86_64/ARM64 Linux).
