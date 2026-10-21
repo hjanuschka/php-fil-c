@@ -67,8 +67,9 @@ The binary is dynamically linked against the Fil-C runtime and libc
 (`/opt/fil/lib/ld-fil1-x86_64.so` is the interpreter), so keep `/opt/fil`
 around.
 
-Memory-safety violations in PHP's own C code (or extensions) abort as a Fil-C
-panic instead of being exploitable UB, e.g.:
+Fil-C can abort on invalid pointer operations in PHP's C code or Fil-C-built
+extensions. This does not replace PHP security fixes or guarantee that a
+specific vulnerability cannot lead to code execution, e.g.:
 
 ```
 filc safety error: cannot read pointer with null object.
