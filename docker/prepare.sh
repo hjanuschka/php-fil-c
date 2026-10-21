@@ -17,19 +17,27 @@ mkdir -p "$CTX/optfil-lib" \
          "$CTX/php-fpm/lib/php/extensions/$EXT"
 
 # Fil-C runtime closure: the loader plus every shared object the PHP binaries
-# need (transitively). Copy by soname from /opt/fil/lib.
-mapfile -t LIBS < <(
+# need, transitively to a fixed point (curl->idn2->unistring, icu->data, ...).
+resolve() { readelf -d "$1" 2>/dev/null | grep NEEDED | sed -E 's/.*\[(.*)\]/\1/' || true; }
+{
   for b in "$PHP/bin/php" "$PHP/sbin/php-fpm" "$EXTDIR"*.so; do
-    [ -e "$b" ] && readelf -d "$b" 2>/dev/null | grep NEEDED | sed -E 's/.*\[(.*)\]/\1/'
-  done | sort -u
-)
-for l in "${LIBS[@]}"; do cp -L "/opt/fil/lib/$l" "$CTX/optfil-lib/" 2>/dev/null || true; done
-# transitive deps of those libs (curl->nghttp2/zstd, icu->data, ...)
-for l in "$CTX"/optfil-lib/*; do
-  for n in $(readelf -d "$l" 2>/dev/null | grep NEEDED | sed -E 's/.*\[(.*)\]/\1/'); do
-    cp -L "/opt/fil/lib/$n" "$CTX/optfil-lib/" 2>/dev/null || true
+    [ -e "$b" ] && resolve "$b"
   done
+} | sort -u > /tmp/.filc-q
+: > /tmp/.filc-seen
+while [ -s /tmp/.filc-q ]; do
+  : > /tmp/.filc-next
+  while read -r l; do
+    [ -n "$l" ] || continue
+    grep -qxF "$l" /tmp/.filc-seen && continue || true
+    [ -e "/opt/fil/lib/$l" ] || continue
+    cp -L "/opt/fil/lib/$l" "$CTX/optfil-lib/" 2>/dev/null || true
+    echo "$l" >> /tmp/.filc-seen
+    resolve "/opt/fil/lib/$l" >> /tmp/.filc-next
+  done < /tmp/.filc-q
+  sort -u /tmp/.filc-next > /tmp/.filc-q
 done
+rm -f /tmp/.filc-q /tmp/.filc-seen /tmp/.filc-next
 cp -L /opt/fil/lib/ld-fil1-x86_64.so "$CTX/optfil-lib/"
 
 cp "$PHP/bin/php" "$CTX/php-cli/bin/"; strip "$CTX/php-cli/bin/php" 2>/dev/null || true
