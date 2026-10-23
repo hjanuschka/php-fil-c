@@ -15,7 +15,7 @@ Docker images, rebuilt the day a PHP CVE lands.
 
 <p align="center">
 <a href="https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml"><img src="https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml/badge.svg" alt="build-and-publish"/></a>
-<img src="https://img.shields.io/badge/PHP-8.2--8.5-777BB4?logo=php&logoColor=white" alt="PHP"/>
+<img src="https://img.shields.io/badge/PHP-8.1--8.5-777BB4?logo=php&logoColor=white" alt="PHP"/>
 <img src="https://img.shields.io/badge/Fil--C-0.686-2ea44f" alt="Fil-C"/>
 <img src="https://img.shields.io/badge/CVE--2026--109618%20%2B%20109619-patched-b31d1c" alt="CVE patched"/>
 <img src="https://img.shields.io/badge/platform-linux%20amd64-lightgrey" alt="platform"/>
@@ -40,17 +40,19 @@ mitigation in every image.
 | **8.4.27** | 2026-10 | ✅ 109618 · 109619 | [`php-8.4.27-filc.patch`](patches/php-8.4.27-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.3.36** | 2026-10 | ✅ 109618 · 109619 | [`php-8.3.36-filc.patch`](patches/php-8.3.36-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.2.35** | 2026-10 | ✅ 109618 · 109619 | [`php-8.2.35-filc.patch`](patches/php-8.2.35-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| 8.1 / 8.0 | EOL | backport needed | porting | ⏳ | ⏳ | ⏳ | ⏳ |
+| **8.1.32** | 2026-10 | ✅ 109618 · 109619 | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
+| 8.0.30 | EOL | backport needed | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ⏳ | ⏳ | ⏳ | ⏳ |
 | 7.4 | EOL | backport needed | Filnix port | ⏳ | ⏳ | ⏳ | ⏳ |
 | ≤ 7.3 / 5.x | EOL | none upstream | none | ❌ | ❌ | ❌ | ❌ |
 
 Legend: ✅ built + smoke-tested · ⏳ planned / in progress · ❌ no Fil-C port exists.
 `versions.json` is the machine-readable source of truth for this table.
 
-**Why these four versions?** They are exactly the releases PHP shipped the two
-RCE fixes in. Older lines (8.1, 8.0, 7.4) are EOL and did not get the fixes, so
-supporting them means backporting the CVE patches *and* the Fil-C port -- see
-[PLAN.md](PLAN.md).
+**Why these five versions?** They are exactly the releases PHP shipped the two
+RCE fixes in. Older lines (8.0, 7.4) are EOL and did not get the fixes, so
+supporting them means backporting the CVE patches *and* the Fil-C port, plus
+building libxml/OpenSSL versions that old PHP can compile against inside the
+image (optfil ships only current libs) -- see [PLAN.md](PLAN.md).
 
 ## Images
 
