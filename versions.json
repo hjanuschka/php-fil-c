@@ -43,9 +43,9 @@
       "series": "8.0",
       "version": "8.0.30",
       "sha256": "216ab305737a5d392107112d618a755dc5df42058226f1670e9db90e77d777d9",
-      "patch": null,
-      "status": "pending",
-      "note": "CVE-fixed release; Fil-C port pending"
+      "patch": "php-8.0.30-filc.patch",
+      "status": "blocked",
+      "note": "Fil-C port correct (patch applies clean); build blocked on optfil libxml 2.15.4 / OpenSSL 3.3 vs EOL PHP 8.0 XML stack (lib-compat, not Fil-C)"
     },
     {
       "series": "7.4",
