@@ -84,9 +84,11 @@ RUN set -eux; \
     mkdir -p src && tar -xf "php-${PHP_VERSION}.tar.xz" -C src; \
     cd "src/php-${PHP_VERSION}"; \
     patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-filc.patch"; \
+    sed -i 's|PHP_INTL_CXX_FLAGS="\$INTL_COMMON_FLAGS \$PHP_INTL_STDCXX \$ICU_CXXFLAGS"|PHP_INTL_CXX_FLAGS="$INTL_COMMON_FLAGS $PHP_INTL_STDCXX $ICU_CXXFLAGS -std=c++17"|' configure; \
     printf 'prefix=/opt/fil\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: sqlite3\nDescription: SQLite (Fil-C)\nVersion: 3.46.0\nLibs: -L${libdir} -lsqlite3\nCflags: -I${includedir}\n' > /opt/fil/lib/pkgconfig/sqlite3.pc; \
     PKG_CONFIG_PATH=/opt/fil/lib/pkgconfig \
     PKG_CONFIG=/opt/fil/bin/pkg-config \
+    CXXFLAGS="-std=c++17" LIBS="-lc++abi" \
     ./configure --prefix=/opt/php-filc \
       --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
       --disable-fiber-asm --without-pcre-jit --disable-opcache-jit --disable-opcache \
