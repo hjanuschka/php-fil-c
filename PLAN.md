@@ -1,124 +1,178 @@
-# Release plan: patched PHP on Fil-C
+# php-fil-c — Roadmap & Spec
 
-**Status:** no images published; the old PHP 8.4.25 build is on security hold.
-The first release candidate is PHP 8.4.27 + Fil-C 0.686, `linux/amd64`.
-Do not publish a tag until all gates below pass.
+Goal: a maintainable "safe haven" that publishes memory-safe PHP (built with
+[Fil-C](https://fil-c.org)) as drop-in Docker images — CLI, FPM, Apache
+(mod_php), and a WordPress image — across PHP 7.x → latest, reproducible so a
+new PHP CVE is a version bump + rebuild.
 
-## Security policy
+---
 
-PHP fixes, not Fil-C panics, are the prerequisite for releases. Two critical
-issues published on 2026-10-21 affect the previous 8.4.25 build:
+## 0. Current state (what already works)
 
-- [GHSA-w8hw-w9fx-j79w](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w)
-  (CVE-2026-109618): OOM `longjmp` can skip cleanup while request state is
-  partially initialized. Shutdown can then act on corrupt state.
-- [GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp)
-  (CVE-2026-109619): globals retaining request-owned state can be consumed
-  by a subsequent request before they are reset. A producer and a consumer
-  on the same worker can lead to use-after-free and RCE.
+Everything below is built **entirely in Docker** (`docker/Dockerfile`,
+multi-stage) and verified locally:
 
-Fil-C makes many invalid accesses abort, but this does **not** prove either
-exploit is blocked: a stale pointer may remain reachable through the collector,
-logic/state bugs need not violate bounds, and PHP can execute code legitimately.
-The supported PHP releases containing the complete fixes start at 8.2.35,
-8.3.36, 8.4.27 and 8.5.12. Verify this list against upstream advisories on
-each release; do not use version comparison as a substitute for source review.
+- **8.4.27** Fil-C: `cli`, `fpm`, `apache` (mod_php), and **WordPress 6.7**
+  serving a live site (native MySQL over TCP; only PHP runs under Fil-C).
+- Fil-C-built dependency stack in `/opt/fil`: expat, APR, APR-util, httpd
+  2.4.62, SQLite, oniguruma.
+- Extensions working: mysqli, pdo_mysql, pdo_sqlite, sqlite3, curl, dom,
+  SimpleXML, xml, xmlreader, xmlwriter, mbstring, intl, fileinfo, openssl,
+  zlib, bz2, exif, ftp, sockets, pcntl, bcmath.
+- `versions.json` is the single source of truth for the matrix.
 
-Ondrej's [Ubuntu PHP PPA](https://launchpad.net/~ondrej/+archive/ubuntu/php/)
-source packages include a backport for **both** CVEs in 7.1.33-80,
-7.2.34-66, 7.3.33-35, 7.4.33-31, 8.0.30-25 and 8.1.34-9 (Debian revision,
-not an upstream PHP patch version). Their source patch explicitly calls itself
-"Minimal mitigation for EOL version". Treat these branches as *not yet approved*
-for a patched Fil-C image: audit each backport and its missing coverage, apply
-it to the exact source archive, port that source to Fil-C, and pass targeted
-cross-request tests. PPA binaries are ordinary PHP compiled for Ubuntu; they
-cannot be copied into a Fil-C Debian Bookworm image.
+Key build tricks discovered (encoded in the Dockerfile):
+- Fil-C's `ld` auto-loads the host GCC LTO plugin (needs `libc.so.6`) and
+  fails; use plain `filcc` and keep optfil's `ld` off `PATH`.
+- APR's generated libtool leaves `global_symbol_pipe=""`, breaking httpd's
+  shared-module link (`nm … |  | sed`); set it to `cat`.
+- PHP needs a hand-written `sqlite3.pc`; oniguruma/sqlite are built with Fil-C.
 
-## Phase 0: repair the public build
+---
 
-1. Disable the vulnerable 8.4.25 download/build and warn existing users.
-2. Pin the 8.4.27 source and checksum; forward-port the Fil-C patch with zero
-   rejected hunks. Verify the exact source version in `src-<version>` and the
-   installed binary before calling it a release. Do not allow arbitrary
-   `PHP_VERSION`/checksum overrides in the publish path.
-3. Run the existing smoke test, new upstream OOM/session PHPTs and broad PHP
-   tests. Local trial currently builds 8.4.27 and passes selected OOM/session
-   PHPTs, but **three Zend tests panic** in
-   `zend_accel_pending_ce_cache_commit` with OPcache enabled. Resolve that
-   Fil-C capability issue and rerun tests before enabling public builds or FPM.
-4. Test both CLI and repeated requests to the same FPM worker (including OOM,
-   fatal error, next request, session upload progress). A crash in a worker is
-   not an acceptable security regression test outcome merely because it is not
-   RCE. Document any unsupported extension or remaining failure.
+## 1. The single most important decision: adopt Filnix, don't reinvent
 
-## Phase 1: one local Bookworm image
+[mbrock/filnix](https://github.com/mbrock/filnix) is a mature Fil-C PHP port
+that has **already solved most of the limitations** we currently list. Its
+patch set (`patches/php-*.patch`) is the reference. Our repo's value-add is the
+Docker matrix, the WordPress drop-in, the per-version branch/CI model, and
+reproducible CVE rebuilds — not re-deriving the Fil-C port.
 
-- Build from pinned `debian:bookworm` + verified Fil-C `/opt/fil` release and
-  patched PHP source in a multi-stage Dockerfile. Start with `linux/amd64`.
-- Provide `cli` and `fpm` targets, with CA certificates, appropriate FPM
-  config/port, non-root workers and explicit entrypoints. Do not include the
-  build toolchain in runtime images. Preserve the Fil-C loader, runtime,
-  Fil-C-built shared-library closure and required data files; use `readelf`
-  plus a runtime `docker run` check rather than host `ldd` alone. Don't
-  silently link in Debian's native C libraries.
-- Disable JITs, document OPcache's per-process behavior and allocator costs;
-  verify image functionality from a clean host using `docker run` for CLI,
-  curl/openssl/intl and FPM. Measure and document image sizes.
+Filnix already ships (verified in its repo tree):
 
-## Phase 2: CI without publishing
+| Capability | Filnix patch | Our status |
+| --- | --- | --- |
+| Core Fil-C port 8.4 | `php-8.4-filc.patch`, `php-8.4-alloc-filc.patch`, `php-8.4-dom-filc.patch`, `php-8.4-shmop-filc.patch` | we have a single combined subset |
+| **OPcache** (works, 864 tests) | `php-8.4-opcache-filc.patch`, `php-8.4-opcache-ce-cache-filc.patch` | we ship opcache OFF |
+| **OPcache JIT via C** (475 tests, 4–60× on CPU) | `php-8.4-opcache-jit-c-filc.patch`, `php-8.5-opcache-jit-c-filc.patch` | not started |
+| PCRE2 under Fil-C | `pcre2-10.48-filc-match.patch` | we use `--without-pcre-jit` |
+| PHP 7.4 (+ CVE backports) | `php-7.4-filc.patch`, `php-7.4-alloc-filc.patch`, `php-7.4-opcache-filc.patch`, `php-7.4-cve-*.patch` | not started |
+| PHP 8.5 (hybrid VM, JIT) | `php-8.5-*.patch` | not started |
+| Image libs for gd/imagick (libpng, libjpeg-turbo, libwebp, libtiff, …) | Filnix package set | not started |
+| PECL: apcu, redis, msgpack, xdebug, imagick, xsl, … | `patches/php-*.patch` + `ports/overlay.nix` | not started |
 
-- Manifest/allowlist records for each candidate: exact PHP source URL and
-  SHA256, Fil-C release/digest, port/backport patch checksum and provenance,
-  required security fixes, supported architecture, SAPI variants and expected
-  module list. Begin with **8.4.27 only**. Version strings alone cannot
-  establish a source backport.
-- PR workflow derives a matrix from *reviewed* manifest entries, never PR
-  labels or an untrusted input version. Compile and test with no registry
-  credentials. Treat failed and skipped **mandatory** security tests as
-  failures. A normal PHPUnit/PHPT fail cannot be waived by the publishing job.
-- `docker run` smoke checks should verify `php -v`, `php -m`, Fibers, WeakMap,
-  DOM, OPcache, memory limit, dynamic dependencies and a multi-request FPM
-  session. Reproduce release candidate tests on each architecture separately.
-- Pin Actions by commit SHA, give PR jobs read-only permissions, and restrict
-  network/secret access for untrusted contributions.
+**Action:** vendor Filnix's PHP patches into `patches/` (with attribution and
+upstream commit pins), and mirror its build flags. Track Filnix upstream so new
+Fil-C fixes flow in.
 
-## Phase 3: promote to GHCR and Docker Hub
+Filnix's documented results we can inherit by adopting its patches:
+- OPcache: 864 tests pass; shared memory mapped **privately** (capabilities
+  don't cross processes) → each FPM worker has its own cache.
+- JIT-through-C: prints opcache JIT IR as C, compiles with `filcc`, `dlopen`s
+  it. Safety preserved (a JIT bug = Fil-C panic, not corruption). Persistent
+  object cache via `PHP_JIT_C_CACHE` + ccache. Function mode 4–60× on CPU-bound
+  code; tracing works but slower than interpreter; PCRE JIT still off.
+- Performance: PHP is 1.5–4× slower than native; system allocator (default) is
+  ~2× slower than Zend's but gives per-value bounds (this is the safety win).
 
-- A separate trusted, approval-gated workflow publishes only a tested commit
-  and manifest entry. Use Buildx for a per-platform candidate, inspect the
-  pushed image by digest, then promote the same digest to GHCR and Docker Hub.
-- GHCR: `ghcr.io/hjanuschka/php-fil-c` with scoped `GITHUB_TOKEN` package-write
-  permission. Docker Hub: `hjanuschka/php-fil-c` with repository-scoped access
-  token stored in GitHub Actions secrets (not a password). Never expose these
-  credentials to PR workflows.
-- Immutable tags first: `8.4.27-cli-bookworm`, `8.4.27-fpm-bookworm` (or
-  `8.4.27-bookworm` for CLI). Only after successful digest checks promote
-  `8.4-cli-bookworm` / `8.4-fpm-bookworm` and, once a default PHP 8 branch is
-  defined, `8-bookworm` / `8-fpm-bookworm`. Never retag a vulnerable image.
-- Generate SBOM/provenance attestation, record source/toolchain digests and
-  image digest, publish a changelog and a rollback target. Add arm64 only
-  after the aarch64 Fil-C toolchain and runtime pass identical tests.
+---
 
-## Phase 4: expand the matrix
+## 2. Version strategy: one branch per minor, flexible per-version patches
 
-Add 8.2, 8.3 and 8.5 one by one using the first patched (or newer) upstream
-releases. A Fil-C port patch is version-specific; do not assume the 8.4 patch
-applies safely elsewhere. Assess the six EOL/PPA versions individually and
-explicitly omit any that cannot meet the security and runtime gates. CI may
-build research candidates, but the publication matrix contains approved entries
-only. Monitor both PHP security releases and Fil-C toolchain updates; rebuild
-and repromote only after tests.
+The user's model: a branch per PHP minor (`7.1`, `7.2`, … `8.5`), each free to
+carry whatever patch set it needs, and CI builds images per branch. This is the
+right call because the Fil-C patch genuinely diverges per line (e.g. 7.4 has no
+`zend_weakrefs.c` retagging identical to 8.x; 8.4+ has lexbor DOM).
 
-## README checklist
+### Branch model
+```
+main            → the tooling: docker/, versions.json, CI, docs, shared scripts
+php/8.5         → patches/php-8.5.*-filc.patch, versions.json entry
+php/8.4         → (default; already works)
+php/8.3  php/8.2  php/8.1  php/8.0  php/7.4  php/7.3  php/7.2  php/7.1
+```
+Each `php/x.y` branch:
+- pins its exact tarball(s) + sha256 in `versions.json`
+- carries its own `patches/php-x.y.*-filc.patch` set (may be Filnix's, may be
+  hand-ported, may include sury/ondrej build glue)
+- CI builds `cli`/`fpm`/`apache`/`wordpress` for that version and pushes
+  `:x.y.N-<sapi>`, `:x.y-<sapi>`, plus `:latest` from the newest supported.
 
-- Support table: exact PHP version, architecture, CLI/FPM, extensions, Fil-C
-  version, security provenance and currently available image digests.
-- Local setup from a clean system: Fil-C distribution, pinned PHP source,
-  `./build.sh`, verification commands, how to clean/rebuild, FPM configuration.
-- Copy/paste `docker run` and Compose examples for CLI/FPM, including a
-  digest-pinned deployment example and how to configure nginx/FastCGI.
-- Threat model and warnings: Fil-C does not replace security patches; no JIT;
-  OPcache per-worker state; performance; known test failures, unsupported
-  extensions and how long image tags receive updates.
-- Links to advisory sources, exact PHP fix commits, PPA source patches (if an
-  EOL version is ever approved), and toolchain licenses.
+`main` holds the shared Dockerfile + matrix logic; branches only diverge in
+`patches/` and their `versions.json` entry. Rebase branches on `main` to pick up
+tooling fixes.
+
+### Where old-version patches come from
+- **8.3 / 8.2**: port Filnix's 8.4 patch back (drop lexbor hunks, fix
+  `zend_alloc.c`/`zend_fibers.c` context). Mostly mechanical; ~2–4 hunks/version.
+- **8.1 / 8.0 / 7.4**: Filnix has 7.4; port 7.4 forward to 8.0/8.1 or 8.4 back.
+  Use **sury.org / ondrej PPA** source packaging as the *base tarball* for these
+  EOL lines — it carries the build-system glue and CVE backports that make old
+  PHP compile on a modern toolchain. Note: sury patches are **Debian packaging**,
+  not Fil-C patches; we still apply the Fil-C patch on top.
+- **7.3 / 7.2 / 7.1**: no Fil-C port exists upstream (Filnix stops at 7.4).
+  These need a from-scratch Fil-C port per line (no `zend_weakrefs.c` before
+  7.4; OpenSSL 1.0/1.1 vs optfil's 3.x). **Mark research/best-effort**, not
+  guaranteed.
+- **5.x**: same as 7.1 but worse (very different internals, OpenSSL 1.0, no
+  `zend_weakrefs`, no PHP 7 object model). **Out of scope** unless Filnix or
+  another port adds it. Recommend documenting as unsupported.
+
+---
+
+## 3. Image variants (close the gap without destabilising the default)
+
+Mirror the official `php`/`wordpress` images so we're a drop-in:
+
+| Image | Contents | Notes |
+| --- | --- | --- |
+| `:cli` | Fil-C PHP CLI | safe interpreter, full extensions |
+| `:fpm` | FPM + **OPcache on** (Filnix opcache patch) | default; no JIT |
+| `:fpm-jit` | FPM + OPcache + **JIT-through-C** | experimental; `PHP_JIT_C_CACHE` warm |
+| `:apache` | Fil-C httpd + mod_php | done |
+| `:wordpress` | apache + WordPress, env-var contract | done for 8.4 |
+
+Keep JIT in a separate `:fpm-jit` variant so the default stays stable (matches
+Filnix keeping `php-jit` separate from `php`).
+
+---
+
+## 4. Gap-closure plan (ordered by value/effort)
+
+| # | Gap | Fix | Effort | Source |
+| --- | --- | --- | --- | --- |
+| P0 | OPcache off | Adopt Filnix opcache + ce-cache patches; enable in `:fpm` | Med | Filnix |
+| P0 | Extensions: gd, zip, sodium, xsl, gmp, ldap | Build dep libs with Fil-C (libpng, libjpeg-turbo, libwebp, freetype, libzip, libsodium, libxslt, gmp, openldap) into `/opt/fil` | Med | Filnix pkg set |
+| P1 | No JIT | Integrate `php-8.4-opcache-jit-c-filc.patch`; new `:fpm-jit` variant; `PHP_JIT_CC=/opt/fil/bin/filcc` | High | Filnix |
+| P1 | PCRE JIT off | Adopt `pcre2-10.48-filc-match.patch` (interpreter, not JIT) to at least get PCRE2 correct under Fil-C | Low | Filnix |
+| P2 | JIT compile overhead | Persistent object cache (`PHP_JIT_C_CACHE`) + ccache; prefilled cache image | High | Filnix |
+| P2 | FPM worker cache dup | Pre-fork warmup; document private-cache semantics | Med | — |
+| P3 | amd64 only | Fil-C runtime is amd64; arm64 needs upstream Fil-C work | Very high | upstream |
+| P3 | PCRE native JIT | PCRE2-to-C backend (research) | Very high | research |
+| P4 | 7.1–7.3, 5.x | from-scratch Fil-C port per line | Very high | research |
+
+**Do NOT** weaken the safety model to chase speed: keep the system allocator
+default (per-value bounds) and keep JIT output going through Fil-C (no raw
+executable mmap). Those are the whole point.
+
+---
+
+## 5. Reproducible CVE rebuild (the operational goal)
+
+When PHP ships a patch release (e.g. 8.4.28):
+1. On branch `php/8.4`: bump `versions.json` version + sha256.
+2. Re-apply the Fil-C patch set to the new tarball (usually applies clean; fix
+   any drifted hunks).
+3. Push → CI builds all SAPIs + WordPress, runs the smoke tests, pushes tags.
+4. `main`'s `:latest`/`:8` tags move via the newest branch.
+
+CI (`.github/workflows/build-and-publish.yml`) becomes a matrix over branches
+(or a `versions.json` list on `main`), building `docker --target {cli,fpm,apache,wordpress}`
+per version and pushing to GHCR. Add a WordPress end-to-end job (bring up
+`mysql:8` service, run `wp core install`, curl the homepage) as the acceptance
+test.
+
+---
+
+## 6. Immediate next steps (this repo)
+
+1. Vendor Filnix's 8.4 patch set (split: core/alloc/dom/opcache/shmop) and
+   enable OPcache in `:fpm`. Verify the 864-test OPcache suite.
+2. Add `gd`, `zip`, `sodium` by building their libs with Fil-C in the deps stage.
+3. Add `:fpm-jit` target with the JIT-through-C patch; smoke-test with
+   `opcache.jit=function` on a CPU script.
+4. Port the patch to 8.3 / 8.2 (drop lexbor, fix alloc/fibers hunks); open
+   `php/8.3`, `php/8.2` branches.
+5. Convert CI to the per-version matrix + WordPress acceptance job.
+6. Rewrite README limitations to reflect what's now solved (OPcache, JIT via C,
+   extensions, 7.4) vs. genuinely open (PCRE JIT, arm64, ≤7.3, 5.x).
