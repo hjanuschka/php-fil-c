@@ -36,8 +36,8 @@
       "version": "8.1.32",
       "sha256": "c582ac682a280bbc69bc2186c21eb7e3313cc73099be61a6bc1d2cd337cbf383",
       "patch": "php-8.1.32-filc.patch",
-      "status": "port",
-      "note": "patch applies clean; build blocked on intl/ICU C++17 under Fil-C"
+      "status": "supported",
+      "note": "Fil-C build verified (intl works via C++17); CVE-fixed release"
     },
     {
       "series": "8.0",
