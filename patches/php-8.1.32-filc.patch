@@ -1,0 +1,189 @@
+--- a/Zend/zend_operators.h
++++ b/Zend/zend_operators.h
+@@ -467,7 +467,10 @@
+ #define ZVAL_OFFSETOF_TYPE	\
+ 	(offsetof(zval, u1.type_info) - offsetof(zval, value))
+ 
+-#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer)
++/* Fil-C: configure's asm goto probe passes, but these asm goto blocks write
++ * through a pointer operand, and FilPizlonatorPass crashes on that callbr.
++ * Use the overflow builtins instead. */
++#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer) && !defined(__FILC__)
+ # define ZEND_USE_ASM_ARITHMETIC 1
+ #else
+ # define ZEND_USE_ASM_ARITHMETIC 0
+--- a/Zend/zend_alloc.c
++++ b/Zend/zend_alloc.c
+@@ -2791,6 +2791,17 @@
+ 	}
+ }
+ 
++#if defined(__FILC__) && ZEND_MM_STAT
++/* PHP's tracked allocator never recorded peaks, so memory_get_peak_usage()
++ * reported 0; it is the default here, and monitoring code reads it. */
++# define TRACKED_PEAK(heap) do { \
++		if ((heap)->size > (heap)->peak) (heap)->peak = (heap)->size; \
++		if ((heap)->real_size > (heap)->real_peak) (heap)->real_peak = (heap)->real_size; \
++	} while (0)
++#else
++# define TRACKED_PEAK(heap) do { } while (0)
++#endif
++
+ static void *tracked_malloc(size_t size)
+ {
+ 	zend_mm_heap *heap = AG(mm_heap);
+@@ -2835,10 +2846,17 @@
+ 	ptr = __zend_realloc(ptr, new_size);
+ 	tracked_add(heap, ptr, new_size);
+ 	heap->size += new_size - old_size;
++	TRACKED_PEAK(heap);
+ 	return ptr;
+ }
+ 
+ static void tracked_free_all() {
++#ifdef __FILC__
++	/* The keys are addresses, and an integer cast back to a pointer has no
++	 * capability, so free() would trap. Fil-C's collector reclaims the
++	 * request's leftover allocations once nothing refers to them. */
++	return;
++#endif
+ 	HashTable *tracked_allocs = AG(mm_heap)->tracked_allocs;
+ 	zend_ulong h;
+ 	ZEND_HASH_FOREACH_NUM_KEY(tracked_allocs, h) {
+@@ -2854,8 +2872,20 @@
+ 
+ #if ZEND_MM_CUSTOM
+ 	tmp = getenv("USE_ZEND_ALLOC");
++#ifdef __FILC__
++	/* Zend's allocator carves request memory out of 2 MiB chunks, so Fil-C
++	 * bounds every PHP value only by its chunk and a freed value's memory is
++	 * reused inside it: use after free and overflows between values go
++	 * undetected. Default to the system allocator, which gives each value
++	 * its own capability, tracked so that memory_limit and
++	 * memory_get_usage() still work. USE_ZEND_ALLOC=1 selects Zend's
++	 * allocator and USE_TRACKED_ALLOC=0 untracked malloc. */
++	if (!tmp || !ZEND_ATOL(tmp)) {
++		bool tracked = !(tmp = getenv("USE_TRACKED_ALLOC")) || ZEND_ATOL(tmp);
++#else
+ 	if (tmp && !ZEND_ATOL(tmp)) {
+ 		bool tracked = (tmp = getenv("USE_TRACKED_ALLOC")) && ZEND_ATOL(tmp);
++#endif
+ 		zend_mm_heap *mm_heap = alloc_globals->mm_heap = malloc(sizeof(zend_mm_heap));
+ 		memset(mm_heap, 0, sizeof(zend_mm_heap));
+ 		mm_heap->use_custom_heap = ZEND_MM_CUSTOM_HEAP_STD;
+@@ -3117,3 +3147,4 @@
+ 	return sizeof(zend_alloc_globals);
+ }
+ #endif
++
+--- a/Zend/zend_cpuinfo.c
++++ b/Zend/zend_cpuinfo.c
+@@ -81,7 +81,7 @@
+ 	// directly because older assemblers do not include support for xgetbv and
+ 	// there is no easy way to conditionally compile based on the assembler used.
+ 	unsigned eax, edx;
+-	__asm__(".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(0));
++	__asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
+ 	return eax;
+ # elif defined(ZEND_WIN32) && defined(_XCR_XFEATURE_ENABLED_MASK)
+ 	return _xgetbv(_XCR_XFEATURE_ENABLED_MASK);
+--- a/Zend/zend_string.h
++++ b/Zend/zend_string.h
+@@ -341,7 +341,7 @@
+ 	}
+ }
+ 
+-#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__)))
++#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__))) && !defined(__FILC__)
+ BEGIN_EXTERN_C()
+ ZEND_API bool ZEND_FASTCALL zend_string_equal_val(zend_string *s1, zend_string *s2);
+ END_EXTERN_C()
+--- a/Zend/zend_types.h
++++ b/Zend/zend_types.h
+@@ -506,6 +506,19 @@
+ 	struct _zend_property_info *ptr[1];
+ } zend_property_info_list;
+ 
++#ifdef __FILC__
++/* Fil-C drops a pointer's capability when it becomes an integer, so tag the
++ * list pointer with pointer arithmetic instead. */
++typedef union {
++	struct _zend_property_info *ptr;
++	char *list;
++} zend_property_info_source_list;
++
++#define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) ((char *) (list) + 0x1)
++#define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) \
++	((zend_property_info_list *) ((list) - ((uintptr_t) (list) & 0x1)))
++#define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((uintptr_t) (list) & 0x1)
++#else
+ typedef union {
+ 	struct _zend_property_info *ptr;
+ 	uintptr_t list;
+@@ -514,6 +527,7 @@
+ #define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) (0x1 | (uintptr_t) (list))
+ #define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) ((zend_property_info_list *) ((list) & ~0x1))
+ #define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((list) & 0x1)
++#endif
+ 
+ struct _zend_reference {
+ 	zend_refcounted_h              gc;
+--- a/Zend/zend_operators.c
++++ b/Zend/zend_operators.c
+@@ -2732,7 +2732,7 @@
+ 			if (p != (const unsigned char*)source) {
+ 				memcpy(res, source, p - (const unsigned char*)source);
+ 			}
+-			r = (unsigned char*)p + (res - source);
++			r = (unsigned char*)res + (p - (const unsigned char*)source);
+ 			zend_str_tolower_impl((char *)r, (const char*)p, end - p);
+ 			res[length] = '\0';
+ 			return res;
+--- a/Zend/zend_multiply.h
++++ b/Zend/zend_multiply.h
+@@ -180,7 +180,7 @@
+ 	return res;
+ }
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__FILC__)
+ 
+ static zend_always_inline size_t zend_safe_address(size_t nmemb, size_t size, size_t offset, bool *overflow)
+ {
+--- a/Zend/zend_string.c
++++ b/Zend/zend_string.c
+@@ -432,7 +432,7 @@
+ 	return ret;
+ }
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__) && !defined(__FILC__)
+ ZEND_API bool ZEND_FASTCALL zend_string_equal_val(zend_string *s1, zend_string *s2)
+ {
+ 	const char *ptr = ZSTR_VAL(s1);
+--- a/ext/opcache/shared_alloc_mmap.c
++++ b/ext/opcache/shared_alloc_mmap.c
+@@ -36,6 +36,14 @@
+ #if defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
+ # define MAP_ANONYMOUS MAP_ANON
+ #endif
++#ifdef __FILC__
++/* Fil-C keeps pointer capabilities per process, so a pointer one process
++ * stores in a shared mapping has none in another: an FPM worker trapped
++ * reading the hash entry of a script another worker had cached. Map the
++ * cache privately; forked workers still start from what the parent cached. */
++# undef MAP_SHARED
++# define MAP_SHARED MAP_PRIVATE
++#endif
+ #if defined(MAP_ALIGNED_SUPER)
+ # define MAP_HUGETLB MAP_ALIGNED_SUPER
+ #endif
+@@ -69,7 +77,7 @@
+ 	 * (boot time config only, but enabled by default on most arches).
+ 	 */
+ 	if (requested_size >= huge_page_size && requested_size % huge_page_size == 0) {
+-# if defined(__x86_64__) && defined(MAP_32BIT)
++# if defined(__x86_64__) && defined(MAP_32BIT) && !defined(__FILC__)
+ 		/* to got HUGE PAGES in low 32-bit address we have to reserve address
+ 		   space and then remap it using MAP_HUGETLB */
+ 

@@ -30,6 +30,30 @@
       "patch": "php-8.2.35-filc.patch",
       "series": "8.2",
       "status": "supported"
+    },
+    {
+      "series": "8.1",
+      "version": "8.1.32",
+      "sha256": "c582ac682a280bbc69bc2186c21eb7e3313cc73099be61a6bc1d2cd337cbf383",
+      "patch": "php-8.1.32-filc.patch",
+      "status": "port",
+      "note": "patch applies clean; build blocked on intl/ICU C++17 under Fil-C"
+    },
+    {
+      "series": "8.0",
+      "version": "8.0.30",
+      "sha256": "216ab305737a5d392107112d618a755dc5df42058226f1670e9db90e77d777d9",
+      "patch": null,
+      "status": "pending",
+      "note": "CVE-fixed release; Fil-C port pending"
+    },
+    {
+      "series": "7.4",
+      "version": "7.4.33",
+      "sha256": "924846abf93bc613815c55dd3f5809377813ac62a9ec4eb3778675b82a27b927",
+      "patch": null,
+      "status": "pending",
+      "note": "CVE backport + Fil-C port pending; has zend_weakrefs.c"
     }
   ]
 }
