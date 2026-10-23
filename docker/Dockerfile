@@ -90,6 +90,7 @@ RUN set -eux; \
     ./configure --prefix=/opt/php-filc \
       --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
       --disable-fiber-asm --without-pcre-jit --disable-opcache-jit --disable-opcache \
+      --disable-cgi --disable-phpdbg \
       --with-openssl --with-zlib --with-bz2 --with-curl \
       --with-sqlite3 --with-pdo-sqlite \
       --with-mysqli=mysqlnd --with-pdo-mysql=mysqlnd \
@@ -111,7 +112,11 @@ RUN apt-get update \
  && getent group www-data >/dev/null || groupadd -r --gid 82 www-data \
  && getent passwd www-data >/dev/null || useradd -r -u 82 -g 82 -s /usr/sbin/nologin www-data
 COPY --from=php /opt/fil/lib/ /opt/fil/lib/
-RUN printf '[PHP]\nmemory_limit = 512M\nupload_max_filesize = 64M\npost_max_size = 64M\nmax_execution_time = 300\ndate.timezone = UTC\nexpose_php = Off\n' > /usr/local/lib/php.ini
+# PHP's compiled-in ini path is /opt/php-filc/lib; use a scan dir so the config
+# survives the per-SAPI COPYs and matches the official images' conf.d pattern.
+# session.upload_progress.enabled=0 is the CVE-2026-109619 mitigation (GHSA-6wmf-4rv5-p3rp).
+ENV PHP_INI_SCAN_DIR=/usr/local/etc/php/conf.d
+RUN mkdir -p /usr/local/etc/php/conf.d && printf '[PHP]\nmemory_limit = 512M\nupload_max_filesize = 64M\npost_max_size = 64M\nmax_execution_time = 300\ndate.timezone = UTC\nexpose_php = Off\nsession.upload_progress.enabled = 0\n' > /usr/local/etc/php/conf.d/filc.ini
 
 FROM runtime AS cli
 COPY --from=php /opt/php-filc/bin/php /usr/local/bin/php

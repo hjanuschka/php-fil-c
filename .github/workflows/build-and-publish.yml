@@ -1,14 +1,20 @@
 name: build-and-publish
 
-# Rebuilds PHP with Fil-C from source and publishes CLI + FPM images to GHCR.
-# Manual trigger, or push a `v*` tag. Images are built from the patched PHP
-# version pinned in build.sh (currently 8.4.27, which contains the fixes for
-# CVE-2026-109618 / CVE-2026-109619).
+# Builds Fil-C PHP images for every version in versions.json and publishes
+# cli / fpm / apache / wordpress variants to GHCR. Triggered manually, on a
+# `v*` tag, or on push to main. To ship a new PHP CVE fix: bump versions.json
+# (version + sha256), drop the Fil-C patch, push.
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Only build this version (blank = all supported)"
+        required: false
+        default: ""
   push:
     tags: ['v*']
+    branches: ['main']
 
 permissions:
   contents: read
@@ -20,32 +26,47 @@ env:
   FILC_VERSION: "0.686"
 
 jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.gen.outputs.include }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build matrix from versions.json
+        id: gen
+        env:
+          ONLY: ${{ github.event.inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          data = json.load(open('versions.json'))
+          only = os.environ.get('ONLY', '').strip()
+          rows = []
+          for v in data['versions']:
+              if v.get('status') != 'supported':
+                  continue
+              if only and v['version'] != only:
+                  continue
+              for sapi in ('cli', 'fpm', 'apache', 'wordpress'):
+                  rows.append({'version': v['version'], 'series': v['series'], 'sapi': sapi})
+          print('include=' + json.dumps(rows))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('include=' + json.dumps(rows) + '\n')
+          PY
+
   build:
-    runs-on: ubuntu-24.04
+    needs: matrix
+    if: needs.matrix.outputs.include != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            bison re2c autoconf pkg-config curl ca-certificates \
-            libssl-dev zlib1g-dev libbz2-dev libcurl4-openssl-dev \
-            libicu-dev libonig-dev libedit-dev libpcre2-dev libxml2-dev
-
-      - name: Install Fil-C (/opt/fil)
-        run: |
-          set -euo pipefail
-          curl -fLO "https://github.com/pizlonator/fil-c/releases/download/v${FILC_VERSION}/optfil-${FILC_VERSION}-linux-x86_64.tar.xz"
-          tar -xf "optfil-${FILC_VERSION}-linux-x86_64.tar.xz"
-          ( cd "optfil-${FILC_VERSION}-linux-x86_64" && sudo ./setup.sh -u )
-          /opt/fil/bin/filcc --version | head -1
-
-      - name: Build PHP with Fil-C
-        run: ./build.sh
-
-      - name: Assemble Docker context
-        run: ./docker/prepare.sh
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -55,19 +76,32 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        run: |
-          set -euo pipefail
-          V=$(grep -m1 '^PHP_VERSION=' build.sh | cut -d'"' -f2)
-          for sapi in cli fpm; do
-            docker build --target "$sapi" -t "$IMAGE:$V-$sapi-bookworm" docker
-            docker tag "$IMAGE:$V-$sapi-bookworm" "$IMAGE:8.4-$sapi-bookworm"
-            docker tag "$IMAGE:$V-$sapi-bookworm" "$IMAGE:8-$sapi-bookworm"
-            docker tag "$IMAGE:$V-$sapi-bookworm" "$IMAGE:$sapi-bookworm"
-            for t in "$V-$sapi-bookworm" "8.4-$sapi-bookworm" "8-$sapi-bookworm" "$sapi-bookworm"; do
-              docker push "$IMAGE:$t"
-            done
-          done
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: ${{ matrix.sapi }}
+          build-args: |
+            PHP_VERSION=${{ matrix.version }}
+            FILC_VERSION=${{ env.FILC_VERSION }}
+          push: true
+          cache-from: type=gha,scope=${{ matrix.series }}
+          cache-to: type=gha,scope=${{ matrix.series }},mode=max
+          tags: |
+            ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm
+            ${{ env.IMAGE }}:${{ matrix.series }}-${{ matrix.sapi }}-bookworm
+            ${{ env.IMAGE }}:${{ matrix.sapi }}-bookworm
 
-      - name: Smoke test pushed image
+      - name: Smoke test
         run: |
-          docker run --rm --entrypoint php "$IMAGE:cli-bookworm" -r 'echo "published ok: ", PHP_VERSION, "\n";'
+          docker pull ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm
+          case "${{ matrix.sapi }}" in
+            cli)
+              docker run --rm --entrypoint php ${{ env.IMAGE }}:${{ matrix.version }}-cli-bookworm \
+                -r 'echo PHP_VERSION, " ok upload_progress=", (ini_get("session.upload_progress.enabled") ? "ON" : "0"), "\n";' ;;
+            fpm)
+              docker run --rm --entrypoint /usr/local/sbin/php-fpm ${{ env.IMAGE }}:${{ matrix.version }}-fpm-bookworm \
+                -t -y /usr/local/etc/php-fpm.conf ;;
+            apache|wordpress)
+              docker run --rm --entrypoint /opt/fil/apache/bin/httpd ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm -v ;;
+          esac
