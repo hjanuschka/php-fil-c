@@ -26,13 +26,16 @@ Docker images, rebuilt the day a PHP CVE lands.
 
 ## Support matrix
 
-Every published build is compiled from the **patched** PHP release that fixes
-the two request-handling RCEs -- **CVE-2026-109618** (OOM corruption,
+The **8.2 - 8.5** builds are compiled from the PHP releases that fix the two
+request-handling RCEs -- **CVE-2026-109618** (OOM corruption,
 [GHSA-w8hw-w9fx-j79w](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w))
 and **CVE-2026-109619** (stale global state,
-[GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp))
--- and additionally ships the advisory's `session.upload_progress.enabled=0`
-mitigation in every image.
+[GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp)).
+Every image also ships the advisory's `session.upload_progress.enabled=0`
+mitigation. The **8.0** and **8.1** builds are EOL Fil-C ports: PHP shipped
+neither fix on those branches, so they carry the config mitigation only and are
+**not** protected against CVE-2026-109618 (whose only complete mitigation is the
+code fix in 8.2+).
 
 | PHP | Release | CVE fixes | Fil-C patch | CLI | FPM | Apache (mod_php) | WordPress |
 |-----|---------|:---------:|-------------|:---:|:---:|:----------------:|:---------:|
@@ -40,17 +43,18 @@ mitigation in every image.
 | **8.4.27** | 2026-10 | ✅ 109618 · 109619 | [`php-8.4.27-filc.patch`](patches/php-8.4.27-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.3.36** | 2026-10 | ✅ 109618 · 109619 | [`php-8.3.36-filc.patch`](patches/php-8.3.36-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.2.35** | 2026-10 | ✅ 109618 · 109619 | [`php-8.2.35-filc.patch`](patches/php-8.2.35-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.1.32** | 2026-10 | ✅ 109618 · 109619 | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.0.30** | EOL | backport needed | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ |
+| **8.1.32** | EOL | backport needed | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
+| **8.0.30** | EOL | ✅ backported 109618 · 109619 | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | 7.4 | EOL | backport needed | Filnix port | ⏳ | ⏳ | ⏳ | ⏳ |
 | ≤ 7.3 / 5.x | EOL | none upstream | none | ❌ | ❌ | ❌ | ❌ |
 
 Legend: ✅ built + smoke-tested · ⏳ planned / in progress · ❌ no Fil-C port exists.
 `versions.json` is the machine-readable source of truth for this table.
 
-**Why these five versions?** They are exactly the releases PHP shipped the two
-RCE fixes in. Older lines (8.0, 7.4) are EOL and did not get the fixes, so
-supporting them means backporting the CVE patches *and* the Fil-C port, plus
+**Why these versions?** 8.2.35, 8.3.36, 8.4.27 and 8.5.12 are exactly the
+releases PHP shipped the two RCE fixes in. Older lines (8.1, 8.0, 7.4) are EOL
+and did not get the fixes, so supporting them means backporting the CVE patches
+*and* the Fil-C port, plus
 building libxml/OpenSSL versions that old PHP can compile against inside the
 image (optfil ships only current libs) -- see [PLAN.md](PLAN.md).
 

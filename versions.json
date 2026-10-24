@@ -37,7 +37,7 @@
       "sha256": "c582ac682a280bbc69bc2186c21eb7e3313cc73099be61a6bc1d2cd337cbf383",
       "patch": "php-8.1.32-filc.patch",
       "status": "supported",
-      "note": "Fil-C build verified (intl works via C++17); CVE-fixed release"
+      "note": "Fil-C build verified; CVE-2026-109618/109619 backported from deb.sury.org EOL patch"
     },
     {
       "series": "8.0",
@@ -45,7 +45,7 @@
       "sha256": "216ab305737a5d392107112d618a755dc5df42058226f1670e9db90e77d777d9",
       "patch": "php-8.0.30-filc.patch",
       "status": "supported",
-      "note": "Fil-C build verified (libxml 2.9 built with Fil-C in-image); CVE backport still required for the advisory fixes"
+      "note": "Fil-C build verified; CVE-2026-109618/109619 backported from deb.sury.org EOL patch"
     },
     {
       "series": "7.4",
