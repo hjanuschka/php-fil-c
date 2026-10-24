@@ -256,3 +256,17 @@ Recommended path (instead of old-Debian base):
 
 Net: old-Debian is a dead end because of Fil-C's glibc-coupled headers; the
 filcc-built-old-OpenSSL-on-bookworm route is the one to pursue.
+
+Bookworm-side fixes needed for 7.x (the modern-glibc issues old-Debian would
+have dodged, now that we stay on bookworm):
+- OpenSSL: build OpenSSL 1.1.1 with `filcc` into `/opt/fil`, write an
+  `openssl.pc`, configure PHP with `--with-openssl=/opt/fil`. Fixes the
+  `OPENSSL_API_COMPAT expresses an impossible API compatibility level` error
+  (PHP 7.4 vs OpenSSL 3.x).
+- `strlcpy`: glibc ≥ 2.38 ships `strlcpy`, so PHP's configure sets
+  `HAVE_STRLCPY=1` but the declaration is not visible → `call to undeclared
+  library function 'strlcpy'`. Force PHP's own copy with
+  `ac_cv_func_strlcpy=no` on the configure line.
+- `L_tmpnam`: `use of undeclared identifier 'L_tmpnam'` from `/usr/include/stdio.h`
+  under the feature-test macros Fil-C/PHP combine on bookworm. Add
+  `-D_DEFAULT_SOURCE` (via CPPFLAGS) so glibc exposes the BSD/macros.
