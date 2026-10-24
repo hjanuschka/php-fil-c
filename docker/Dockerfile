@@ -85,6 +85,14 @@ RUN set -eux; \
     cd "src/php-${PHP_VERSION}"; \
     patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-filc.patch"; \
     sed -i 's|PHP_INTL_CXX_FLAGS="\$INTL_COMMON_FLAGS \$PHP_INTL_STDCXX \$ICU_CXXFLAGS"|PHP_INTL_CXX_FLAGS="$INTL_COMMON_FLAGS $PHP_INTL_STDCXX $ICU_CXXFLAGS -std=c++17"|' configure; \
+    case "${PHP_VERSION}" in \
+      5.*|7.*|8.0.*) \
+        echo "PHP ${PHP_VERSION}: building libxml 2.9 with Fil-C (optfil ships only 2.15, which EOL PHP cannot compile against)"; \
+        curl -fL "https://download.gnome.org/sources/libxml2/2.9/libxml2-2.9.14.tar.xz" -o /tmp/lx.txz; \
+        mkdir -p /tmp/lx && tar -xf /tmp/lx.txz -C /tmp/lx; \
+        ( cd /tmp/lx/libxml2-2.9.14 && CC=/opt/fil/bin/filcc ./configure --prefix=/opt/fil --enable-shared --without-python >/dev/null && make -j"$(nproc)" >/dev/null && make install >/dev/null ); \
+        ;; \
+    esac; \
     printf 'prefix=/opt/fil\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: sqlite3\nDescription: SQLite (Fil-C)\nVersion: 3.46.0\nLibs: -L${libdir} -lsqlite3\nCflags: -I${includedir}\n' > /opt/fil/lib/pkgconfig/sqlite3.pc; \
     PKG_CONFIG_PATH=/opt/fil/lib/pkgconfig \
     PKG_CONFIG=/opt/fil/bin/pkg-config \

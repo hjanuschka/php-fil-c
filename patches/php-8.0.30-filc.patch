@@ -179,6 +179,26 @@
  }
  #endif
 +
+--- a/ext/standard/string.c
++++ b/ext/standard/string.c
+@@ -1368,7 +1368,7 @@
+ 			if (c != (unsigned char*)ZSTR_VAL(s)) {
+ 				memcpy(ZSTR_VAL(res), ZSTR_VAL(s), c - (unsigned char*)ZSTR_VAL(s));
+ 			}
+-			r = c + (ZSTR_VAL(res) - ZSTR_VAL(s));
++			r = (unsigned char *)ZSTR_VAL(res) + (c - (unsigned char *)ZSTR_VAL(s));
+ 			while (c < e) {
+ 				*r = toupper(*c);
+ 				r++;
+@@ -1433,7 +1433,7 @@
+ 				if (c != (unsigned char*)ZSTR_VAL(s)) {
+ 					memcpy(ZSTR_VAL(res), ZSTR_VAL(s), c - (unsigned char*)ZSTR_VAL(s));
+ 				}
+-				r = c + (ZSTR_VAL(res) - ZSTR_VAL(s));
++				r = (unsigned char *)ZSTR_VAL(res) + (c - (unsigned char *)ZSTR_VAL(s));
+ 				while (c < e) {
+ 					*r = tolower(*c);
+ 					r++;
 --- a/ext/openssl/openssl.c
 +++ b/ext/openssl/openssl.c
 @@ -1325,7 +1325,9 @@

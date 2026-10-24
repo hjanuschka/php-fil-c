@@ -44,8 +44,8 @@
       "version": "8.0.30",
       "sha256": "216ab305737a5d392107112d618a755dc5df42058226f1670e9db90e77d777d9",
       "patch": "php-8.0.30-filc.patch",
-      "status": "pending",
-      "note": "Fil-C port correct (patch applies clean). Build needs libxml 2.9 / OpenSSL 3.0 built against optfil libc inside the image (optfil ships only 2.15/3.6; system-lib headers clash with optfil libc). CVE backport also required."
+      "status": "supported",
+      "note": "Fil-C build verified (libxml 2.9 built with Fil-C in-image); CVE backport still required for the advisory fixes"
     },
     {
       "series": "7.4",

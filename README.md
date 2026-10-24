@@ -41,7 +41,7 @@ mitigation in every image.
 | **8.3.36** | 2026-10 | ✅ 109618 · 109619 | [`php-8.3.36-filc.patch`](patches/php-8.3.36-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.2.35** | 2026-10 | ✅ 109618 · 109619 | [`php-8.2.35-filc.patch`](patches/php-8.2.35-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.1.32** | 2026-10 | ✅ 109618 · 109619 | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| 8.0.30 | EOL | backport needed | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ⏳ | ⏳ | ⏳ | ⏳ |
+| **8.0.30** | EOL | backport needed | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | 7.4 | EOL | backport needed | Filnix port | ⏳ | ⏳ | ⏳ | ⏳ |
 | ≤ 7.3 / 5.x | EOL | none upstream | none | ❌ | ❌ | ❌ | ❌ |
 
