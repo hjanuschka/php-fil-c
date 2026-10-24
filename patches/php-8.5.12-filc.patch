@@ -1,3 +1,199 @@
+--- a/Zend/zend_weakrefs.h
++++ b/Zend/zend_weakrefs.h
+@@ -57,6 +57,24 @@
+  * It is not used for the HashTable instances associated with ZEND_WEAKREF_TAG_HT tags (created in zend_weakref_register, which uses ZEND_WEAKREF_ENCODE instead).
+  * The ZEND_WEAKREF_TAG_HT instances are used to disambiguate between multiple weak references to the same zend_object.
+  */
++#ifdef __FILC__
++/* Fil-C drops a pointer's capability when it becomes an integer, so record
++ * each object whose address becomes a key and look it up again. */
++#include <stdfil.h>
++
++extern ZEND_API zexact_ptrtable *zend_weakref_objects;
++
++static zend_always_inline zend_ulong zend_object_to_weakref_key(const zend_object *object)
++{
++	ZEND_ASSERT(((uintptr_t)object) % ZEND_MM_ALIGNMENT == 0);
++	return zexact_ptrtable_encode(zend_weakref_objects, (void *) object) >> ZEND_MM_ALIGNMENT_LOG2;
++}
++
++static zend_always_inline zend_object *zend_weakref_key_to_object(zend_ulong key)
++{
++	return zexact_ptrtable_decode(zend_weakref_objects, ((uintptr_t) key) << ZEND_MM_ALIGNMENT_LOG2);
++}
++#else
+ static zend_always_inline zend_ulong zend_object_to_weakref_key(const zend_object *object)
+ {
+ 	ZEND_ASSERT(((uintptr_t)object) % ZEND_MM_ALIGNMENT == 0);
+@@ -67,6 +85,7 @@
+ {
+ 	return (zend_object *) (((uintptr_t) key) << ZEND_MM_ALIGNMENT_LOG2);
+ }
++#endif
+ 
+ HashTable *zend_weakmap_get_gc(zend_object *object, zval **table, int *n);
+ HashTable *zend_weakmap_get_key_entry_gc(zend_object *object, zval **table, int *n);
+--- a/Zend/zend_weakrefs.c
++++ b/Zend/zend_weakrefs.c
+@@ -52,8 +52,23 @@
+ #define ZEND_WEAKREF_TAG_HT      2
+ #define ZEND_WEAKREF_TAG_BARE_HT 3
+ #define ZEND_WEAKREF_GET_TAG(p) (((uintptr_t) (p)) & 3)
++#ifdef __FILC__
++/* Tag with pointer arithmetic, which keeps the capability that an integer
++ * round trip would drop. Tagged pointers are aligned, so this matches | t. */
++#define ZEND_WEAKREF_GET_PTR(p) ((void *) ((char *) (p) - ZEND_WEAKREF_GET_TAG(p)))
++#define ZEND_WEAKREF_ENCODE(p, t) ((void *) ((char *) (p) + (t)))
++
++ZEND_API zexact_ptrtable *zend_weakref_objects;
++
++__attribute__((constructor)) static void zend_weakref_objects_init(void)
++{
++	/* Weak: weak references must not keep their objects alive. */
++	zend_weakref_objects = zexact_ptrtable_new_weak();
++}
++#else
+ #define ZEND_WEAKREF_GET_PTR(p) ((void *) (((uintptr_t) (p)) & ~3))
+ #define ZEND_WEAKREF_ENCODE(p, t) ((void *) (((uintptr_t) (p)) | (t)))
++#endif
+ 
+ zend_class_entry *zend_ce_weakref;
+ static zend_class_entry *zend_ce_weakmap;
+--- a/Zend/zend_types.h
++++ b/Zend/zend_types.h
+@@ -608,6 +608,19 @@
+ 	struct _zend_property_info *ptr[1];
+ } zend_property_info_list;
+ 
++#ifdef __FILC__
++/* Fil-C drops a pointer's capability when it becomes an integer, so tag the
++ * list pointer with pointer arithmetic instead. */
++typedef union {
++	struct _zend_property_info *ptr;
++	char *list;
++} zend_property_info_source_list;
++
++#define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) ((char *) (list) + 0x1)
++#define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) \
++	((zend_property_info_list *) ((list) - ((uintptr_t) (list) & 0x1)))
++#define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((uintptr_t) (list) & 0x1)
++#else
+ typedef union {
+ 	struct _zend_property_info *ptr;
+ 	uintptr_t list;
+@@ -616,6 +629,7 @@
+ #define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) (0x1 | (uintptr_t) (list))
+ #define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) ((zend_property_info_list *) ((list) & ~0x1))
+ #define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((list) & 0x1)
++#endif
+ 
+ struct _zend_reference {
+ 	zend_refcounted_h              gc;
+--- a/Zend/zend_string.h
++++ b/Zend/zend_string.h
+@@ -441,7 +441,7 @@
+ 	return ZSTR_LEN(s1) == s2_length && !memcmp(ZSTR_VAL(s1), s2, s2_length);
+ }
+ 
+-#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__)))
++#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__))) && !defined(__FILC__)
+ BEGIN_EXTERN_C()
+ ZEND_API bool ZEND_FASTCALL zend_string_equal_val(const zend_string *s1, const zend_string *s2);
+ END_EXTERN_C()
+--- a/Zend/zend_string.c
++++ b/Zend/zend_string.c
+@@ -391,7 +391,7 @@
+ 	}
+ }
+ 
+-#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__)))
++#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__))) && !defined(__FILC__)
+ /* Even if we don't build with valgrind support, include the symbol so that valgrind available
+  * only at runtime will not result in false positives. */
+ #ifndef I_REPLACE_SONAME_FNNAME_ZU
+@@ -449,7 +449,7 @@
+ 	return ret;
+ }
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__) && !defined(__FILC__)
+ ZEND_API zend_never_inline NOIPA bool ZEND_FASTCALL zend_string_equal_val(const zend_string *s1, const zend_string *s2)
+ {
+ 	const char *ptr = ZSTR_VAL(s1);
+--- a/Zend/zend_operators.h
++++ b/Zend/zend_operators.h
+@@ -544,7 +544,10 @@
+ #define ZVAL_OFFSETOF_TYPE	\
+ 	(offsetof(zval, u1.type_info) - offsetof(zval, value))
+ 
+-#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer)
++/* Fil-C: configure's asm goto probe passes, but these asm goto blocks write
++ * through a pointer operand, and FilPizlonatorPass crashes on that callbr.
++ * Use the overflow builtins instead. */
++#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer) && !defined(__FILC__)
+ # define ZEND_USE_ASM_ARITHMETIC 1
+ #else
+ # define ZEND_USE_ASM_ARITHMETIC 0
+--- a/Zend/zend_operators.c
++++ b/Zend/zend_operators.c
+@@ -3107,7 +3107,7 @@
+ 			if (p != (const unsigned char*)source) {
+ 				memcpy(res, source, p - (const unsigned char*)source);
+ 			}
+-			r = (unsigned char*)p + (res - source);
++			r = (unsigned char*)res + (p - (const unsigned char*)source);
+ 			zend_str_tolower_impl((char *)r, (const char*)p, end - p);
+ 			res[length] = '\0';
+ 			return res;
+@@ -3131,7 +3131,7 @@
+ 			if (p != (const unsigned char*)source) {
+ 				memcpy(res, source, p - (const unsigned char*)source);
+ 			}
+-			r = (unsigned char*)p + (res - source);
++			r = (unsigned char*)res + (p - (const unsigned char*)source);
+ 			zend_str_toupper_impl((char *)r, (const char*)p, end - p);
+ 			res[length] = '\0';
+ 			return res;
+--- a/Zend/zend_multiply.h
++++ b/Zend/zend_multiply.h
+@@ -174,7 +174,7 @@
+ 	return res;
+ }
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__FILC__)
+ 
+ static zend_always_inline size_t zend_safe_address(size_t nmemb, size_t size, size_t offset, bool *overflow)
+ {
+--- a/Zend/zend_fibers.c
++++ b/Zend/zend_fibers.c
+@@ -600,8 +600,15 @@
+ 		EG(error_reporting) = error_reporting;
+ 
+ #ifdef ZEND_CHECK_STACK_LIMIT
++# ifdef __FILC__
++		/* Fil-C runs the fiber on a native stack of the requested size that
++		 * its runtime allocates, not on stack->pointer; measure from here. */
++		EG(stack_base) = __builtin_frame_address(0);
++		EG(stack_limit) = (int8_t*)EG(stack_base) - fiber->context.stack->size + EG(reserved_stack_size);
++# else
+ 		EG(stack_base) = zend_fiber_stack_base(fiber->context.stack);
+ 		EG(stack_limit) = zend_fiber_stack_limit(fiber->context.stack);
++# endif
+ #endif
+ 
+ 		fiber->fci.retval = &fiber->result;
+--- a/Zend/zend_cpuinfo.c
++++ b/Zend/zend_cpuinfo.c
+@@ -81,7 +81,7 @@
+ 	// directly because older assemblers do not include support for xgetbv and
+ 	// there is no easy way to conditionally compile based on the assembler used.
+ 	unsigned eax, edx;
+-	__asm__(".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(0));
++	__asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
+ 	return eax;
+ # elif defined(ZEND_WIN32) && defined(_XCR_XFEATURE_ENABLED_MASK)
+ 	return _xgetbv(_XCR_XFEATURE_ENABLED_MASK);
 --- a/Zend/zend_alloc.c
 +++ b/Zend/zend_alloc.c
 @@ -3332,6 +3332,17 @@
@@ -66,202 +262,65 @@
  		zend_mm_heap *mm_heap = alloc_globals->mm_heap = malloc(sizeof(zend_mm_heap));
  		memset(mm_heap, 0, sizeof(zend_mm_heap));
  		mm_heap->use_custom_heap = ZEND_MM_CUSTOM_HEAP_STD;
---- a/Zend/zend_cpuinfo.c
-+++ b/Zend/zend_cpuinfo.c
-@@ -81,7 +81,7 @@
- 	// directly because older assemblers do not include support for xgetbv and
- 	// there is no easy way to conditionally compile based on the assembler used.
- 	unsigned eax, edx;
--	__asm__(".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(0));
-+	__asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
- 	return eax;
- # elif defined(ZEND_WIN32) && defined(_XCR_XFEATURE_ENABLED_MASK)
- 	return _xgetbv(_XCR_XFEATURE_ENABLED_MASK);
---- a/Zend/zend_fibers.c
-+++ b/Zend/zend_fibers.c
-@@ -600,8 +600,15 @@
- 		EG(error_reporting) = error_reporting;
- 
- #ifdef ZEND_CHECK_STACK_LIMIT
-+# ifdef __FILC__
-+		/* Fil-C runs the fiber on a native stack of the requested size that
-+		 * its runtime allocates, not on stack->pointer; measure from here. */
-+		EG(stack_base) = __builtin_frame_address(0);
-+		EG(stack_limit) = (int8_t*)EG(stack_base) - fiber->context.stack->size + EG(reserved_stack_size);
-+# else
- 		EG(stack_base) = zend_fiber_stack_base(fiber->context.stack);
- 		EG(stack_limit) = zend_fiber_stack_limit(fiber->context.stack);
-+# endif
+--- a/ext/opcache/shared_alloc_mmap.c
++++ b/ext/opcache/shared_alloc_mmap.c
+@@ -44,6 +44,14 @@
+ #if defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
+ # define MAP_ANONYMOUS MAP_ANON
  #endif
++#ifdef __FILC__
++/* Fil-C keeps pointer capabilities per process, so a pointer one process
++ * stores in a shared mapping has none in another: an FPM worker trapped
++ * reading the hash entry of a script another worker had cached. Map the
++ * cache privately; forked workers still start from what the parent cached. */
++# undef MAP_SHARED
++# define MAP_SHARED MAP_PRIVATE
++#endif
+ #if defined(MAP_ALIGNED_SUPER)
+ # include <sys/types.h>
+ # include <sys/sysctl.h>
+@@ -241,7 +249,7 @@
+ 	 * (boot time config only, but enabled by default on most arches).
+ 	 */
+ 	if (requested_size >= huge_page_size && requested_size % huge_page_size == 0) {
+-# if defined(__x86_64__) && defined(MAP_32BIT)
++# if defined(__x86_64__) && defined(MAP_32BIT) && !defined(__FILC__)
+ 		/* to got HUGE PAGES in low 32-bit address we have to reserve address
+ 		   space and then remap it using MAP_HUGETLB */
  
- 		fiber->fci.retval = &fiber->result;
---- a/Zend/zend_multiply.h
-+++ b/Zend/zend_multiply.h
-@@ -174,7 +174,7 @@
- 	return res;
+--- a/ext/opcache/ZendAccelerator.c
++++ b/ext/opcache/ZendAccelerator.c
+@@ -3072,6 +3072,7 @@
+ 	return SUCCESS;
  }
  
--#elif defined(__GNUC__) && defined(__x86_64__)
-+#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__FILC__)
- 
- static zend_always_inline size_t zend_safe_address(size_t nmemb, size_t size, size_t offset, bool *overflow)
- {
---- a/Zend/zend_operators.c
-+++ b/Zend/zend_operators.c
-@@ -3107,7 +3107,7 @@
- 			if (p != (const unsigned char*)source) {
- 				memcpy(res, source, p - (const unsigned char*)source);
- 			}
--			r = (unsigned char*)p + (res - source);
-+			r = (unsigned char*)res + (p - (const unsigned char*)source);
- 			zend_str_tolower_impl((char *)r, (const char*)p, end - p);
- 			res[length] = '\0';
- 			return res;
-@@ -3131,7 +3131,7 @@
- 			if (p != (const unsigned char*)source) {
- 				memcpy(res, source, p - (const unsigned char*)source);
- 			}
--			r = (unsigned char*)p + (res - source);
-+			r = (unsigned char*)res + (p - (const unsigned char*)source);
- 			zend_str_toupper_impl((char *)r, (const char*)p, end - p);
- 			res[length] = '\0';
- 			return res;
---- a/Zend/zend_operators.h
-+++ b/Zend/zend_operators.h
-@@ -544,7 +544,10 @@
- #define ZVAL_OFFSETOF_TYPE	\
- 	(offsetof(zval, u1.type_info) - offsetof(zval, value))
- 
--#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer)
-+/* Fil-C: configure's asm goto probe passes, but these asm goto blocks write
-+ * through a pointer operand, and FilPizlonatorPass crashes on that callbr.
-+ * Use the overflow builtins instead. */
-+#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer) && !defined(__FILC__)
- # define ZEND_USE_ASM_ARITHMETIC 1
- #else
- # define ZEND_USE_ASM_ARITHMETIC 0
---- a/Zend/zend_string.c
-+++ b/Zend/zend_string.c
-@@ -391,7 +391,7 @@
++#ifndef __FILC__
+ static int accel_dl_iterate_phdr_callback(struct dl_phdr_info *info, size_t size, void *data) {
+ 	if (info->dlpi_name == NULL || strcmp(info->dlpi_name, "") == 0) {
+ 		*((uintptr_t*)data) = info->dlpi_addr;
+@@ -3079,14 +3080,22 @@
  	}
- }
- 
--#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__)))
-+#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__))) && !defined(__FILC__)
- /* Even if we don't build with valgrind support, include the symbol so that valgrind available
-  * only at runtime will not result in false positives. */
- #ifndef I_REPLACE_SONAME_FNNAME_ZU
-@@ -449,7 +449,7 @@
- 	return ret;
- }
- 
--#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__)
-+#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__) && !defined(__FILC__)
- ZEND_API zend_never_inline NOIPA bool ZEND_FASTCALL zend_string_equal_val(const zend_string *s1, const zend_string *s2)
- {
- 	const char *ptr = ZSTR_VAL(s1);
---- a/Zend/zend_string.h
-+++ b/Zend/zend_string.h
-@@ -441,7 +441,7 @@
- 	return ZSTR_LEN(s1) == s2_length && !memcmp(ZSTR_VAL(s1), s2, s2_length);
- }
- 
--#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__)))
-+#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__))) && !defined(__FILC__)
- BEGIN_EXTERN_C()
- ZEND_API bool ZEND_FASTCALL zend_string_equal_val(const zend_string *s1, const zend_string *s2);
- END_EXTERN_C()
---- a/Zend/zend_types.h
-+++ b/Zend/zend_types.h
-@@ -608,6 +608,19 @@
- 	struct _zend_property_info *ptr[1];
- } zend_property_info_list;
- 
-+#ifdef __FILC__
-+/* Fil-C drops a pointer's capability when it becomes an integer, so tag the
-+ * list pointer with pointer arithmetic instead. */
-+typedef union {
-+	struct _zend_property_info *ptr;
-+	char *list;
-+} zend_property_info_source_list;
-+
-+#define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) ((char *) (list) + 0x1)
-+#define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) \
-+	((zend_property_info_list *) ((list) - ((uintptr_t) (list) & 0x1)))
-+#define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((uintptr_t) (list) & 0x1)
-+#else
- typedef union {
- 	struct _zend_property_info *ptr;
- 	uintptr_t list;
-@@ -616,6 +629,7 @@
- #define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) (0x1 | (uintptr_t) (list))
- #define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) ((zend_property_info_list *) ((list) & ~0x1))
- #define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((list) & 0x1)
-+#endif
- 
- struct _zend_reference {
- 	zend_refcounted_h              gc;
---- a/Zend/zend_weakrefs.c
-+++ b/Zend/zend_weakrefs.c
-@@ -52,8 +52,23 @@
- #define ZEND_WEAKREF_TAG_HT      2
- #define ZEND_WEAKREF_TAG_BARE_HT 3
- #define ZEND_WEAKREF_GET_TAG(p) (((uintptr_t) (p)) & 3)
-+#ifdef __FILC__
-+/* Tag with pointer arithmetic, which keeps the capability that an integer
-+ * round trip would drop. Tagged pointers are aligned, so this matches | t. */
-+#define ZEND_WEAKREF_GET_PTR(p) ((void *) ((char *) (p) - ZEND_WEAKREF_GET_TAG(p)))
-+#define ZEND_WEAKREF_ENCODE(p, t) ((void *) ((char *) (p) + (t)))
-+
-+ZEND_API zexact_ptrtable *zend_weakref_objects;
-+
-+__attribute__((constructor)) static void zend_weakref_objects_init(void)
-+{
-+	/* Weak: weak references must not keep their objects alive. */
-+	zend_weakref_objects = zexact_ptrtable_new_weak();
-+}
-+#else
- #define ZEND_WEAKREF_GET_PTR(p) ((void *) (((uintptr_t) (p)) & ~3))
- #define ZEND_WEAKREF_ENCODE(p, t) ((void *) (((uintptr_t) (p)) | (t)))
-+#endif
- 
- zend_class_entry *zend_ce_weakref;
- static zend_class_entry *zend_ce_weakmap;
---- a/Zend/zend_weakrefs.h
-+++ b/Zend/zend_weakrefs.h
-@@ -57,6 +57,24 @@
-  * It is not used for the HashTable instances associated with ZEND_WEAKREF_TAG_HT tags (created in zend_weakref_register, which uses ZEND_WEAKREF_ENCODE instead).
-  * The ZEND_WEAKREF_TAG_HT instances are used to disambiguate between multiple weak references to the same zend_object.
-  */
-+#ifdef __FILC__
-+/* Fil-C drops a pointer's capability when it becomes an integer, so record
-+ * each object whose address becomes a key and look it up again. */
-+#include <stdfil.h>
-+
-+extern ZEND_API zexact_ptrtable *zend_weakref_objects;
-+
-+static zend_always_inline zend_ulong zend_object_to_weakref_key(const zend_object *object)
-+{
-+	ZEND_ASSERT(((uintptr_t)object) % ZEND_MM_ALIGNMENT == 0);
-+	return zexact_ptrtable_encode(zend_weakref_objects, (void *) object) >> ZEND_MM_ALIGNMENT_LOG2;
-+}
-+
-+static zend_always_inline zend_object *zend_weakref_key_to_object(zend_ulong key)
-+{
-+	return zexact_ptrtable_decode(zend_weakref_objects, ((uintptr_t) key) << ZEND_MM_ALIGNMENT_LOG2);
-+}
-+#else
- static zend_always_inline zend_ulong zend_object_to_weakref_key(const zend_object *object)
- {
- 	ZEND_ASSERT(((uintptr_t)object) % ZEND_MM_ALIGNMENT == 0);
-@@ -67,6 +85,7 @@
- {
- 	return (zend_object *) (((uintptr_t) key) << ZEND_MM_ALIGNMENT_LOG2);
+ 	return 0;
  }
 +#endif
  
- HashTable *zend_weakmap_get_gc(zend_object *object, zval **table, int *n);
- HashTable *zend_weakmap_get_key_entry_gc(zend_object *object, zval **table, int *n);
+ static zend_result accel_find_program_section(ElfW(Shdr) *section) {
+ 
+ 	uintptr_t base_addr;
++#ifdef __FILC__
++	/* Fil-C's libc wrapper does not provide dl_iterate_phdr, so the executable
++	 * base address cannot be found and huge code pages are unsupported. */
++	(void) base_addr;
++	return FAILURE;
++#else
+ 	if (dl_iterate_phdr(accel_dl_iterate_phdr_callback, &base_addr) != 1) {
+ 		zend_error(E_WARNING, ACCELERATOR_PRODUCT_NAME ": opcache.huge_code_pages: executable base address not found");
+ 		return FAILURE;
+ 	}
++#endif
+ 
+ #if defined(__linux__)
+ 	FILE *f = fopen("/proc/self/exe", "r");
 --- a/ext/dom/namespace_compat.c
 +++ b/ext/dom/namespace_compat.c
 @@ -25,6 +25,41 @@
@@ -337,32 +396,6 @@
  			while (Z_LVAL_P(data)-- > 0) {
  				xmlNsPtr ns = node->nsDef;
  				node->nsDef = ns->next;
---- a/ext/opcache/shared_alloc_mmap.c
-+++ b/ext/opcache/shared_alloc_mmap.c
-@@ -44,6 +44,14 @@
- #if defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
- # define MAP_ANONYMOUS MAP_ANON
- #endif
-+#ifdef __FILC__
-+/* Fil-C keeps pointer capabilities per process, so a pointer one process
-+ * stores in a shared mapping has none in another: an FPM worker trapped
-+ * reading the hash entry of a script another worker had cached. Map the
-+ * cache privately; forked workers still start from what the parent cached. */
-+# undef MAP_SHARED
-+# define MAP_SHARED MAP_PRIVATE
-+#endif
- #if defined(MAP_ALIGNED_SUPER)
- # include <sys/types.h>
- # include <sys/sysctl.h>
-@@ -241,7 +249,7 @@
- 	 * (boot time config only, but enabled by default on most arches).
- 	 */
- 	if (requested_size >= huge_page_size && requested_size % huge_page_size == 0) {
--# if defined(__x86_64__) && defined(MAP_32BIT)
-+# if defined(__x86_64__) && defined(MAP_32BIT) && !defined(__FILC__)
- 		/* to got HUGE PAGES in low 32-bit address we have to reserve address
- 		   space and then remap it using MAP_HUGETLB */
- 
 --- a/main/debug_gdb_scripts.c
 +++ b/main/debug_gdb_scripts.c
 @@ -1,3 +1,4 @@
