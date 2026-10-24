@@ -75,6 +75,24 @@
  			zend_str_tolower_impl((char *)r, (const char*)p, end - p);
  			res[length] = '\0';
  			return res;
+@@ -2651,7 +2651,7 @@
+ 		if (_mm_movemask_epi8(mingle)) {
+ 			zend_string *res = zend_string_alloc(length, persistent);
+ 			memcpy(ZSTR_VAL(res), ZSTR_VAL(str), p - (unsigned char *) ZSTR_VAL(str));
+-			unsigned char *q = p + (ZSTR_VAL(res) - ZSTR_VAL(str));
++			unsigned char *q = (unsigned char *)ZSTR_VAL(res) + (p - (unsigned char *)ZSTR_VAL(str));
+ 
+ 			/* Lowercase the chunk we already compared. */
+ 			const __m128i delta = _mm_set1_epi8('a' - 'A');
+@@ -2674,7 +2674,7 @@
+ 			zend_string *res = zend_string_alloc(length, persistent);
+ 			memcpy(ZSTR_VAL(res), ZSTR_VAL(str), p - (unsigned char*) ZSTR_VAL(str));
+ 
+-			unsigned char *q = p + (ZSTR_VAL(res) - ZSTR_VAL(str));
++			unsigned char *q = (unsigned char *)ZSTR_VAL(res) + (p - (unsigned char *)ZSTR_VAL(str));
+ 			while (p < end) {
+ 				*q++ = zend_tolower_ascii(*p++);
+ 			}
 --- a/Zend/zend_multiply.h
 +++ b/Zend/zend_multiply.h
 @@ -180,7 +180,7 @@
