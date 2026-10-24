@@ -1,0 +1,208 @@
+--- a/Zend/zend_alloc.c
++++ b/Zend/zend_alloc.c
+@@ -2728,6 +2728,12 @@
+ }
+ 
+ static void tracked_free_all() {
++#ifdef __FILC__
++	/* The keys are addresses, and an integer cast back to a pointer has no
++	 * capability, so free() would trap. Fil-C's collector reclaims the
++	 * request's leftover allocations once nothing refers to them. */
++	return;
++#endif
+ 	HashTable *tracked_allocs = AG(mm_heap)->tracked_allocs;
+ 	zend_ulong h;
+ 	ZEND_HASH_FOREACH_NUM_KEY(tracked_allocs, h) {
+@@ -2743,14 +2749,37 @@
+ 
+ #if ZEND_MM_CUSTOM
+ 	tmp = getenv("USE_ZEND_ALLOC");
++#ifdef __FILC__
++	/* Zend's allocator carves request memory out of 2 MiB chunks, so Fil-C
++	 * bounds every PHP value only by its chunk and a freed value's memory is
++	 * reused inside it: use after free and overflows between values go
++	 * undetected. Default to the system allocator, which gives each value
++	 * its own capability, tracked so that memory_limit and
++	 * memory_get_usage() still work. USE_ZEND_ALLOC=1 selects Zend's
++	 * allocator and USE_TRACKED_ALLOC=0 untracked malloc. */
++	if (!tmp || !zend_atoi(tmp, 0)) {
++		zend_bool tracked = !(tmp = getenv("USE_TRACKED_ALLOC")) || zend_atoi(tmp, 0);
++#else
+ 	if (tmp && !zend_atoi(tmp, 0)) {
+ 		zend_bool tracked = (tmp = getenv("USE_TRACKED_ALLOC")) && zend_atoi(tmp, 0);
++#endif
+ 		zend_mm_heap *mm_heap = alloc_globals->mm_heap = malloc(sizeof(zend_mm_heap));
+ 		memset(mm_heap, 0, sizeof(zend_mm_heap));
+ 		mm_heap->use_custom_heap = ZEND_MM_CUSTOM_HEAP_STD;
+ 		if (!tracked) {
+ 			/* Use system allocator. */
+ 			mm_heap->custom_heap.std._malloc = __zend_malloc;
++#if defined(__FILC__) && ZEND_MM_STAT
++/* PHP's tracked allocator never recorded peaks, so memory_get_peak_usage()
++ * reported 0; it is the default here, and monitoring code reads it. */
++# define TRACKED_PEAK(heap) do { \
++		if ((heap)->size > (heap)->peak) (heap)->peak = (heap)->size; \
++		if ((heap)->real_size > (heap)->real_peak) (heap)->real_peak = (heap)->real_size; \
++	} while (0)
++#else
++# define TRACKED_PEAK(heap) do { } while (0)
++#endif
++
+ 			mm_heap->custom_heap.std._free = free;
+ 			mm_heap->custom_heap.std._realloc = __zend_realloc;
+ 		} else {
+@@ -3011,3 +3040,4 @@
+ 	return sizeof(zend_alloc_globals);
+ }
+ #endif
++
+--- a/Zend/zend_cpuinfo.c
++++ b/Zend/zend_cpuinfo.c
+@@ -81,7 +81,7 @@
+ 	// directly because older assemblers do not include support for xgetbv and
+ 	// there is no easy way to conditionally compile based on the assembler used.
+ 	unsigned eax, edx;
+-	__asm__(".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(0));
++	__asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
+ 	return eax;
+ # elif defined(ZEND_WIN32) && defined(_XCR_XFEATURE_ENABLED_MASK)
+ 	return _xgetbv(_XCR_XFEATURE_ENABLED_MASK);
+--- a/Zend/zend_string.c
++++ b/Zend/zend_string.c
+@@ -392,7 +392,7 @@
+ }
+ #endif
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__) && !defined(__FILC__)
+ ZEND_API zend_bool ZEND_FASTCALL zend_string_equal_val(zend_string *s1, zend_string *s2)
+ {
+ 	char *ptr = ZSTR_VAL(s1);
+--- a/Zend/zend_string.h
++++ b/Zend/zend_string.h
+@@ -301,7 +301,7 @@
+ 	}
+ }
+ 
+-#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__)))
++#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__))) && !defined(__FILC__)
+ BEGIN_EXTERN_C()
+ ZEND_API zend_bool ZEND_FASTCALL zend_string_equal_val(zend_string *s1, zend_string *s2);
+ END_EXTERN_C()
+--- a/Zend/zend_multiply.h
++++ b/Zend/zend_multiply.h
+@@ -180,7 +180,7 @@
+ 	return res;
+ }
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__FILC__)
+ 
+ static zend_always_inline size_t zend_safe_address(size_t nmemb, size_t size, size_t offset, int *overflow)
+ {
+--- a/Zend/zend_operators.h
++++ b/Zend/zend_operators.h
+@@ -500,7 +500,10 @@
+ #define ZVAL_OFFSETOF_TYPE	\
+ 	(offsetof(zval, u1.type_info) - offsetof(zval, value))
+ 
+-#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer)
++/* Fil-C: configure's asm goto probe passes, but these asm goto blocks write
++ * through a pointer operand, and FilPizlonatorPass crashes on that callbr.
++ * Use the overflow builtins instead. */
++#if defined(HAVE_ASM_GOTO) && !__has_feature(memory_sanitizer) && !defined(__FILC__)
+ # define ZEND_USE_ASM_ARITHMETIC 1
+ #else
+ # define ZEND_USE_ASM_ARITHMETIC 0
+--- a/Zend/zend_operators.c
++++ b/Zend/zend_operators.c
+@@ -2675,7 +2675,7 @@
+ 			if (p != (const unsigned char*)source) {
+ 				memcpy(res, source, p - (const unsigned char*)source);
+ 			}
+-			r = (unsigned char*)p + (res - source);
++			r = (unsigned char*)res + (p - (const unsigned char*)source);
+ 			while (p < end) {
+ 				*r = zend_tolower_ascii(*p);
+ 				p++;
+--- a/Zend/zend_types.h
++++ b/Zend/zend_types.h
+@@ -388,6 +388,19 @@
+ 	struct _zend_property_info *ptr[1];
+ } zend_property_info_list;
+ 
++#ifdef __FILC__
++/* Fil-C drops a pointer's capability when it becomes an integer, so tag the
++ * list pointer with pointer arithmetic instead. */
++typedef union {
++	struct _zend_property_info *ptr;
++	char *list;
++} zend_property_info_source_list;
++
++#define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) ((char *) (list) + 0x1)
++#define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) \
++	((zend_property_info_list *) ((list) - ((uintptr_t) (list) & 0x1)))
++#define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((uintptr_t) (list) & 0x1)
++#else
+ typedef union {
+ 	struct _zend_property_info *ptr;
+ 	uintptr_t list;
+@@ -396,6 +409,7 @@
+ #define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) (0x1 | (uintptr_t) (list))
+ #define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) ((zend_property_info_list *) ((list) & ~0x1))
+ #define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((list) & 0x1)
++#endif
+ 
+ struct _zend_reference {
+ 	zend_refcounted_h              gc;
+--- a/ext/standard/string.c
++++ b/ext/standard/string.c
+@@ -1423,7 +1423,7 @@
+ 			if (c != (unsigned char*)ZSTR_VAL(s)) {
+ 				memcpy(ZSTR_VAL(res), ZSTR_VAL(s), c - (unsigned char*)ZSTR_VAL(s));
+ 			}
+-			r = c + (ZSTR_VAL(res) - ZSTR_VAL(s));
++			r = (unsigned char *)ZSTR_VAL(res) + (c - (unsigned char *)ZSTR_VAL(s));
+ 			while (c < e) {
+ 				*r = toupper(*c);
+ 				r++;
+@@ -1488,7 +1488,7 @@
+ 			if (c != (unsigned char*)ZSTR_VAL(s)) {
+ 				memcpy(ZSTR_VAL(res), ZSTR_VAL(s), c - (unsigned char*)ZSTR_VAL(s));
+ 			}
+-			r = c + (ZSTR_VAL(res) - ZSTR_VAL(s));
++			r = (unsigned char *)ZSTR_VAL(res) + (c - (unsigned char *)ZSTR_VAL(s));
+ 			while (c < e) {
+ 				*r = tolower(*c);
+ 				r++;
+--- a/ext/libxml/libxml.c
++++ b/ext/libxml/libxml.c
+@@ -34,6 +34,8 @@
+ #include <libxml/parser.h>
+ #include <libxml/parserInternals.h>
+ #include <libxml/tree.h>
++#include <libxml/encoding.h>
++#include <libxml/xmlIO.h>
+ #include <libxml/uri.h>
+ #include <libxml/xmlerror.h>
+ #include <libxml/xmlsave.h>
+@@ -1047,7 +1049,7 @@
+ 			LIBXML(error_list) = NULL;
+ 		}
+ 	} else {
+-		xmlSetStructuredErrorFunc(NULL, php_libxml_structured_error_handler);
++		xmlSetStructuredErrorFunc(NULL, (xmlStructuredErrorFunc) php_libxml_structured_error_handler);
+ 		if (LIBXML(error_list) == NULL) {
+ 			LIBXML(error_list) = (zend_llist *) emalloc(sizeof(zend_llist));
+ 			zend_llist_init(LIBXML(error_list), sizeof(xmlError), (llist_dtor_func_t) _php_libxml_free_error, 0);
+--- a/ext/openssl/openssl.c
++++ b/ext/openssl/openssl.c
+@@ -1517,7 +1517,7 @@
+ 	REGISTER_LONG_CONSTANT("PKCS7_NOSIGS", PKCS7_NOSIGS, CONST_CS|CONST_PERSISTENT);
+ 
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_PADDING", RSA_PKCS1_PADDING, CONST_CS|CONST_PERSISTENT);
+-	REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
++
+ 	REGISTER_LONG_CONSTANT("OPENSSL_NO_PADDING", RSA_NO_PADDING, CONST_CS|CONST_PERSISTENT);
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_OAEP_PADDING", RSA_PKCS1_OAEP_PADDING, CONST_CS|CONST_PERSISTENT);
+ 

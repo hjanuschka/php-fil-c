@@ -53,7 +53,7 @@
       "sha256": "924846abf93bc613815c55dd3f5809377813ac62a9ec4eb3778675b82a27b927",
       "patch": null,
       "status": "pending",
-      "note": "CVE backport + Fil-C port + old libxml/OpenSSL built under Fil-C. Has zend_weakrefs.c."
+      "note": "Fil-C port exists; build blocked on OpenSSL 3.x (7.4 predates OpenSSL 3.0) -- needs a filcc-built OpenSSL 1.1.1"
     }
   ]
 }
