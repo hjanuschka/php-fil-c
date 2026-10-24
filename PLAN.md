@@ -176,3 +176,32 @@ test.
 5. Convert CI to the per-version matrix + WordPress acceptance job.
 6. Rewrite README limitations to reflect what's now solved (OPcache, JIT via C,
    extensions, 7.4) vs. genuinely open (PCRE JIT, arm64, ≤7.3, 5.x).
+
+## Old versions (8.0, 7.4, ≤7.3): the real blocker and the path
+
+**Finding (conclusive).** Fil-C rewrites every call into an external library to
+a `pizlonated_`-prefixed symbol and requires the linked library to export those
+symbols. optfil's own libs do (libxml2.so.16 exports 4023 `pizlonated_*`
+symbols; its libc 3342). Debian's system libxml2/OpenSSL export plain symbols
+(0 `pizlonated_*`), so a Fil-C-built PHP **cannot link against system libs** --
+it fails with `undefined reference to pizlonated_xmlParserVersion` etc. This is
+why optfil bundles its own libxml/OpenSSL/ICU/libc.
+
+Consequences:
+- "Build against a Debian base's dev libs" does not work: the symbols do not
+  match. Confirmed by linking PHP 8.0 against system libxml/OpenSSL.
+- optfil ships only current libs (libxml 2.15, OpenSSL 3.6, ICU 78). EOL PHP
+  (8.0/7.x) cannot compile against those (removed `RSA_SSLV23_PADDING`, libxml
+  2.15 header changes, etc.).
+
+**The path.** In the `deps` stage, build the *old* lib versions with `filcc`
+against optfil's libc so the symbols match, then build PHP against them:
+1. Build libxml2 2.9.x with `filcc` into a per-series prefix (e.g. `/opt/fil-8.0`).
+2. Build OpenSSL 3.0.x with `filcc` into the same prefix.
+3. Build PHP 8.0/7.4 against that prefix (pkg-config there), keeping optfil ICU
+   for intl (libc++ ABI) or dropping intl for the oldest lines.
+4. Backport CVE-2026-109618/109619 to the EOL branch (they were never released
+   there) and keep the Fil-C port patch (already drafted for 8.0).
+
+This is per-series lib pinning, not a one-liner. Start with libxml 2.9 + OpenSSL
+3.0 for 8.0; the same pattern extends to 7.4 (OpenSSL 1.1 if needed).
