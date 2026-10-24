@@ -83,6 +83,8 @@ RUN set -eux; \
     curl -fLO "https://www.php.net/distributions/php-${PHP_VERSION}.tar.xz"; \
     mkdir -p src && tar -xf "php-${PHP_VERSION}.tar.xz" -C src; \
     cd "src/php-${PHP_VERSION}"; \
+    cve="/build/patches/cve-backports/php-${PHP_VERSION}-CVE-2026-109618-109619.patch"; \
+    if [ -f "$cve" ]; then echo "applying CVE-2026-109618/109619 backport"; patch -p1 --silent -i "$cve"; fi; \
     patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-filc.patch"; \
     sed -i 's|PHP_INTL_CXX_FLAGS="\$INTL_COMMON_FLAGS \$PHP_INTL_STDCXX \$ICU_CXXFLAGS"|PHP_INTL_CXX_FLAGS="$INTL_COMMON_FLAGS $PHP_INTL_STDCXX $ICU_CXXFLAGS -std=c++17"|' configure; \
     case "${PHP_VERSION}" in \
