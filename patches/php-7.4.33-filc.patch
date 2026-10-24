@@ -125,9 +125,67 @@
  			while (p < end) {
  				*r = zend_tolower_ascii(*p);
  				p++;
+@@ -2703,7 +2703,7 @@
+ 			if (p != (unsigned char*)ZSTR_VAL(str)) {
+ 				memcpy(ZSTR_VAL(res), ZSTR_VAL(str), p - (unsigned char*)ZSTR_VAL(str));
+ 			}
+-			r = p + (ZSTR_VAL(res) - ZSTR_VAL(str));
++			r = (unsigned char*)ZSTR_VAL(res) + (p - (unsigned char*)ZSTR_VAL(str));
+ 			while (p < end) {
+ 				*r = zend_tolower_ascii(*p);
+ 				p++;
 --- a/Zend/zend_types.h
 +++ b/Zend/zend_types.h
-@@ -388,6 +388,19 @@
+@@ -121,7 +121,11 @@
+  * construction.
+  */
+ 
++#ifdef __FILC__
++typedef char *zend_type;
++#else
+ typedef uintptr_t zend_type;
++#endif
+ 
+ #define ZEND_TYPE_IS_SET(t) \
+ 	((t) > Z_L(0x3))
+@@ -172,6 +176,36 @@
+ #define ZEND_TYPE_ENCODE_CLASS_CONST(class_name, allow_null) \
+ 	ZEND_TYPE_ENCODE_CLASS_CONST_Q1(allow_null, class_name)
+ 
++#ifdef __FILC__
++#undef ZEND_TYPE_IS_SET
++#define ZEND_TYPE_IS_SET(t) ((uintptr_t)(t) > 0x3)
++#undef ZEND_TYPE_IS_CODE
++#define ZEND_TYPE_IS_CODE(t) ((uintptr_t)(t) > 0x3 && (uintptr_t)(t) <= 0x3ff)
++#undef ZEND_TYPE_IS_CLASS
++#define ZEND_TYPE_IS_CLASS(t) ((uintptr_t)(t) > 0x3ff)
++#undef ZEND_TYPE_IS_CE
++#define ZEND_TYPE_IS_CE(t) (((uintptr_t)(t) & 0x2) != 0)
++#undef ZEND_TYPE_NAME
++#define ZEND_TYPE_NAME(t) ((zend_string *) ((t) - ((uintptr_t)(t) & 0x3)))
++#undef ZEND_TYPE_CE
++#define ZEND_TYPE_CE(t) ((zend_class_entry *) ((t) - ((uintptr_t)(t) & 0x3)))
++#undef ZEND_TYPE_CODE
++#define ZEND_TYPE_CODE(t) ((uintptr_t)(t) >> 2)
++#undef ZEND_TYPE_ALLOW_NULL
++#define ZEND_TYPE_ALLOW_NULL(t) (((uintptr_t)(t) & 0x1) != 0)
++#undef ZEND_TYPE_WITHOUT_NULL
++#define ZEND_TYPE_WITHOUT_NULL(t) ((t) - ((uintptr_t)(t) & 0x1))
++#undef ZEND_TYPE_ENCODE
++#define ZEND_TYPE_ENCODE(code, allow_null) \
++	((zend_type)(((code) << 2) | ((allow_null) ? 1 : 0)))
++#undef ZEND_TYPE_ENCODE_CE
++#define ZEND_TYPE_ENCODE_CE(ce, allow_null) \
++	((zend_type)((char *)(ce) + ((allow_null) ? 3 : 2)))
++#undef ZEND_TYPE_ENCODE_CLASS
++#define ZEND_TYPE_ENCODE_CLASS(class_name, allow_null) \
++	((zend_type)((char *)(class_name) + ((allow_null) ? 1 : 0)))
++#endif
++
+ typedef union _zend_value {
+ 	zend_long         lval;
+ 	double            dval;
+@@ -388,6 +422,19 @@
  	struct _zend_property_info *ptr[1];
  } zend_property_info_list;
  
@@ -147,7 +205,7 @@
  typedef union {
  	struct _zend_property_info *ptr;
  	uintptr_t list;
-@@ -396,6 +409,7 @@
+@@ -396,6 +443,7 @@
  #define ZEND_PROPERTY_INFO_SOURCE_FROM_LIST(list) (0x1 | (uintptr_t) (list))
  #define ZEND_PROPERTY_INFO_SOURCE_TO_LIST(list) ((zend_property_info_list *) ((list) & ~0x1))
  #define ZEND_PROPERTY_INFO_SOURCE_IS_LIST(list) ((list) & 0x1)

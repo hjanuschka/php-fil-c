@@ -51,9 +51,9 @@
       "series": "7.4",
       "version": "7.4.33",
       "sha256": "924846abf93bc613815c55dd3f5809377813ac62a9ec4eb3778675b82a27b927",
-      "patch": null,
+      "patch": "php-7.4.33-filc.patch",
       "status": "pending",
-      "note": "Fil-C port exists; build blocked on OpenSSL 3.x (7.4 predates OpenSSL 3.0) -- needs a filcc-built OpenSSL 1.1.1"
+      "note": "CLI/FPM/Apache build and run locally with the CVE backport, but HTTPS panics in OpenSSL 1.1.1w BN_nist_mod_384; do not publish"
     }
   ]
 }

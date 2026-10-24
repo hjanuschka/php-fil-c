@@ -267,6 +267,32 @@ have dodged, now that we stay on bookworm):
   `HAVE_STRLCPY=1` but the declaration is not visible → `call to undeclared
   library function 'strlcpy'`. Force PHP's own copy with
   `ac_cv_func_strlcpy=no` on the configure line.
-- `L_tmpnam`: `use of undeclared identifier 'L_tmpnam'` from `/usr/include/stdio.h`
-  under the feature-test macros Fil-C/PHP combine on bookworm. Add
-  `-D_DEFAULT_SOURCE` (via CPPFLAGS) so glibc exposes the BSD/macros.
+- `L_tmpnam`: PHP 7.4's generated Makefile adds `-I/usr/include` (and iconv
+  adds `-I"/usr/include"`), which Fil-C searches *before* `/opt/fil/include`.
+  The resulting system `stdio.h` mixes with Fil-C's `bits` headers. Remove both
+  system include flags after configure; `-D_DEFAULT_SOURCE` alone does not
+  solve this.
+
+### Bookworm 7.4 checkpoint (2026-10-24)
+
+- Fil-C builds OpenSSL 1.1.1w shared libraries and OpenSSL 1.0.2u's
+  `build_libs`. OpenSSL 1.0.2u links and runs a small Fil-C digest program,
+  but has **not** been linked into PHP 5.x. Its `include/openssl` is a
+  symlink farm, so copying it with `cp -a` makes broken headers; use `cp -aL`.
+  OpenSSL 1.1.1's linker version scripts hide Fil-C-renamed `pizlonated_*`
+  symbols; removing the scripts for both libraries enables real PHP links.
+- PHP 7.4.33 CLI/FPM/Apache build in Docker with the CVE backport, Fil-C
+  patch, libxml 2.9.14, OpenSSL 1.1.1w, Oniguruma 6.9.9 and curl 8.11.1.
+  Oniguruma's integer hash entries lost pointer capabilities during mbstring
+  startup; `patches/oniguruma-6.9.9-filc.patch` gives the hash table
+  pointer-typed entries. Build curl against OpenSSL 1.1.1: optfil's curl
+  links OpenSSL 3 and mixing both OpenSSL ABIs panics in TLS.
+- CLI runs PHP, mbstring, HTTP curl, random_bytes and openssl_digest;
+  Apache serves `/index.php`; FPM starts. `session.upload_progress.enabled=0`.
+  PHP 7.4's Apache module is named `libphp7.so`, not `libphp.so`.
+- **Do not publish 7.4 yet:** HTTPS curl panics in `BN_nist_mod_384` inside
+  OpenSSL 1.1.1. The constant-time pointer-mask selection loses Fil-C's
+  capability. A naive branch-based replacement may introduce crypto timing
+  side channels, so the correct solution still needs design and TLS tests.
+  bz2 is omitted: system libbz2 cannot satisfy Fil-C's symbol rewriting.
+  7.3/7.2/5.x PHP ports and CVE backports remain pending.

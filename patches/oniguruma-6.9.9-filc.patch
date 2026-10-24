@@ -1,0 +1,38 @@
+--- a/src/st.h
++++ b/src/st.h
+@@ -6,7 +6,11 @@
+ #define ST_INCLUDED
+ 
+ #if SIZEOF_VOIDP == SIZEOF_LONG
++#ifdef __FILC__
++typedef void *st_data_t;
++#else
+ typedef unsigned long st_data_t;
++#endif
+ #elif SIZEOF_VOIDP == SIZEOF_LONG_LONG
+ typedef unsigned long long st_data_t;
+ #endif
+--- a/src/regint.h
++++ b/src/regint.h
+@@ -289,7 +289,11 @@
+ #endif /* _WIN32 */
+ 
+ #if SIZEOF_VOIDP == SIZEOF_LONG
++#ifdef __FILC__
++typedef void *hash_data_type;
++#else
+ typedef unsigned long hash_data_type;
++#endif
+ #elif SIZEOF_VOIDP == SIZEOF_LONG_LONG
+ typedef unsigned long long hash_data_type;
+ #endif
+--- a/src/st.c
++++ b/src/st.c
+@@ -558,5 +558,5 @@
+ static int
+ numhash(st_data_t n)
+ {
+-  return n;
+-}
++  return (int)(unsigned long)n;
++}

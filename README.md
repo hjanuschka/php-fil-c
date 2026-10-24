@@ -15,7 +15,7 @@ Docker images, rebuilt the day a PHP CVE lands.
 
 <p align="center">
 <a href="https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml"><img src="https://github.com/hjanuschka/php-fil-c/actions/workflows/build-and-publish.yml/badge.svg" alt="build-and-publish"/></a>
-<img src="https://img.shields.io/badge/PHP-8.1--8.5-777BB4?logo=php&logoColor=white" alt="PHP"/>
+<img src="https://img.shields.io/badge/PHP-8.0--8.5-777BB4?logo=php&logoColor=white" alt="PHP"/>
 <img src="https://img.shields.io/badge/Fil--C-0.686-2ea44f" alt="Fil-C"/>
 <img src="https://img.shields.io/badge/CVE--2026--109618%20%2B%20109619-patched-b31d1c" alt="CVE patched"/>
 <img src="https://img.shields.io/badge/platform-linux%20amd64-lightgrey" alt="platform"/>
@@ -32,10 +32,9 @@ request-handling RCEs -- **CVE-2026-109618** (OOM corruption,
 and **CVE-2026-109619** (stale global state,
 [GHSA-6wmf-4rv5-p3rp](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp)).
 Every image also ships the advisory's `session.upload_progress.enabled=0`
-mitigation. The **8.0** and **8.1** builds are EOL Fil-C ports: PHP shipped
-neither fix on those branches, so they carry the config mitigation only and are
-**not** protected against CVE-2026-109618 (whose only complete mitigation is the
-code fix in 8.2+).
+mitigation. The **8.0** and **8.1** builds use the tracked EOL backports in
+[`patches/cve-backports/`](patches/cve-backports/); these fixes were not
+released by upstream PHP for those branches.
 
 | PHP | Release | CVE fixes | Fil-C patch | CLI | FPM | Apache (mod_php) | WordPress |
 |-----|---------|:---------:|-------------|:---:|:---:|:----------------:|:---------:|
@@ -43,20 +42,28 @@ code fix in 8.2+).
 | **8.4.27** | 2026-10 | ✅ 109618 · 109619 | [`php-8.4.27-filc.patch`](patches/php-8.4.27-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.3.36** | 2026-10 | ✅ 109618 · 109619 | [`php-8.3.36-filc.patch`](patches/php-8.3.36-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.2.35** | 2026-10 | ✅ 109618 · 109619 | [`php-8.2.35-filc.patch`](patches/php-8.2.35-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.1.32** | EOL | backport needed | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
+| **8.1.32** | EOL | ✅ backported 109618 · 109619 | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.0.30** | EOL | ✅ backported 109618 · 109619 | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| 7.4 | EOL | backport needed | Filnix port | ⏳ | ⏳ | ⏳ | ⏳ |
-| ≤ 7.3 / 5.x | EOL | none upstream | none | ❌ | ❌ | ❌ | ❌ |
+| **7.4.33** | EOL | backport applied | [`php-7.4.33-filc.patch`](patches/php-7.4.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
+| ≤ 7.3 / 5.x | EOL | backport pending | none | ⏳ | ⏳ | ⏳ | ⏳ |
 
-Legend: ✅ built + smoke-tested · ⏳ planned / in progress · ❌ no Fil-C port exists.
+Legend: ✅ built + smoke-tested · ⚠️ builds and runs locally but unsafe to publish · ⏳ not verified.
 `versions.json` is the machine-readable source of truth for this table.
 
 **Why these versions?** 8.2.35, 8.3.36, 8.4.27 and 8.5.12 are exactly the
 releases PHP shipped the two RCE fixes in. Older lines (8.1, 8.0, 7.4) are EOL
-and did not get the fixes, so supporting them means backporting the CVE patches
-*and* the Fil-C port, plus
-building libxml/OpenSSL versions that old PHP can compile against inside the
-image (optfil ships only current libs) -- see [PLAN.md](PLAN.md).
+and did not get the fixes upstream, so supporting them means backporting the
+CVE patches *and* the Fil-C port, plus building libxml/OpenSSL versions that
+old PHP can compile against inside the image -- see [PLAN.md](PLAN.md).
+
+**7.4 is not publishable yet.** Local CLI, FPM and Apache images build, CLI
+runs mbstring and HTTP curl, and Apache serves `/index.php`. HTTPS curl panics
+inside Fil-C-built OpenSSL 1.1.1w's `BN_nist_mod_384` when masked pointer
+selection loses its capability. No 7.4 image is published; fixing this
+without regressing cryptographic timing behavior is required first. The
+7.4 build also omits bz2 until a Fil-C-built libbz2 is available. OpenSSL
+1.0.2u builds, links and runs a small `filcc`-compiled digest program, but
+no PHP 5.x build is verified.
 
 ## Images
 

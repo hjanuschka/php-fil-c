@@ -99,24 +99,47 @@ RUN set -eux; \
         ( cd /tmp/lx/libxml2-2.9.14 && CC=/opt/fil/bin/filcc ./configure --prefix=/opt/fil --enable-shared --without-python >/dev/null && make -j"$(nproc)" >/dev/null && make install >/dev/null ); \
         ;; \
     esac; \
+    case "${PHP_VERSION}" in \
+      7.*) SSL_VER=1.1.1w; SSL_URL="https://www.openssl.org/source/old/1.1.1/openssl-1.1.1w.tar.gz" ;; \
+      5.*) SSL_VER=1.0.2u; SSL_URL="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2u.tar.gz" ;; \
+      *) SSL_VER="" ;; \
+    esac; \
+    if [ -n "$SSL_VER" ]; then \
+      echo "PHP ${PHP_VERSION}: building OpenSSL ${SSL_VER} with Fil-C (EOL PHP cannot compile against bookworm OpenSSL 3.x)"; \
+      curl -fL "$SSL_URL" -o /tmp/ssl.tgz; mkdir -p /tmp/ssl && tar -xf /tmp/ssl.tgz -C /tmp/ssl; \
+      ( cd "/tmp/ssl/openssl-${SSL_VER}" && CC=/opt/fil/bin/filcc ./Configure linux-x86_64 no-asm shared --prefix=/opt/fil --libdir=lib >/dev/null && sed -i -E 's/-Wl,--version-script=lib(crypto|ssl)\.map//g' Makefile && make -j"$(nproc)" build_libs >/dev/null && mkdir -p /opt/fil/lib /opt/fil/include && cp -a libssl.so* libcrypto.so* /opt/fil/lib/ && rm -rf /opt/fil/include/openssl && cp -aL include/openssl /opt/fil/include/ ); \
+      printf 'prefix=/opt/fil\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: OpenSSL\nDescription: OpenSSL (Fil-C)\nVersion: %s\nLibs: -L${libdir} -lssl -lcrypto\nCflags: -I${includedir}\n' "$SSL_VER" > /opt/fil/lib/pkgconfig/openssl.pc; \
+      ( cd "/tmp/onig-${ONIG_VER}" && patch -p1 --silent -i /build/patches/oniguruma-6.9.9-filc.patch && make -j"$(nproc)" >/dev/null && make install >/dev/null ); \
+      curl -fL --retry 5 "https://curl.se/download/curl-8.11.1.tar.xz" -o /tmp/curl.tar.xz; \
+      ( cd /tmp && tar -xf curl.tar.xz && cd curl-8.11.1 && \
+        PKG_CONFIG_PATH=/opt/fil/lib/pkgconfig ./configure --prefix=/opt/fil --disable-static --with-openssl=/opt/fil --without-libpsl --without-nghttp2 >/dev/null && \
+        sed -i 's/^global_symbol_pipe=""/global_symbol_pipe="cat"/' libtool && \
+        sed -i 's/^am__append_6 = .*/am__append_6 =/' lib/Makefile && \
+        make -j"$(nproc)" -C lib >/dev/null && make -C lib install >/dev/null ); \
+    fi; \
     printf 'prefix=/opt/fil\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: sqlite3\nDescription: SQLite (Fil-C)\nVersion: 3.46.0\nLibs: -L${libdir} -lsqlite3\nCflags: -I${includedir}\n' > /opt/fil/lib/pkgconfig/sqlite3.pc; \
+    case "${PHP_VERSION}" in \
+      5.*|7.*) SSL_FLAGS="--with-openssl=/opt/fil"; EOL_FIXES="ac_cv_func_strlcpy=no"; BZ2_FLAG=""; EOL_CPPFLAGS="-I/opt/fil/include -D_DEFAULT_SOURCE" ;; \
+      *) SSL_FLAGS="--with-openssl"; EOL_FIXES=""; BZ2_FLAG="--with-bz2"; EOL_CPPFLAGS="" ;; \
+    esac; \
     PKG_CONFIG_PATH=/opt/fil/lib/pkgconfig \
     PKG_CONFIG=/opt/fil/bin/pkg-config \
-    CXXFLAGS="-std=c++17" LIBS="-lc++abi" \
+    CPPFLAGS="${EOL_CPPFLAGS}" CXXFLAGS="-std=c++17" LIBS="-lc++abi" \
     ./configure --prefix=/opt/php-filc \
       --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
       --disable-fiber-asm --without-pcre-jit --disable-opcache-jit --disable-opcache \
       --disable-cgi --disable-phpdbg \
-      --with-openssl --with-zlib --with-bz2 --with-curl \
+      ${SSL_FLAGS} --with-zlib ${BZ2_FLAG} --with-curl \
       --with-sqlite3 --with-pdo-sqlite \
       --with-mysqli=mysqlnd --with-pdo-mysql=mysqlnd \
       --enable-mbstring --enable-intl --enable-sockets --enable-bcmath \
       --enable-exif --enable-ftp --enable-shmop --enable-sysvsem --enable-pcntl \
       --with-libedit \
-      ac_cv_have_decl_UFFDIO_WRITEPROTECT_MODE_WP=no; \
+      ac_cv_have_decl_UFFDIO_WRITEPROTECT_MODE_WP=no ${EOL_FIXES}; \
+    case "${PHP_VERSION}" in 5.*|7.*) sed -i -e 's@ -I/usr/include @ @g' -e 's@ -I"/usr/include" @ @g' Makefile ;; esac; \
     make -j"$(nproc)"; \
     make install; \
-    ls -la /opt/fil/apache/modules/libphp.so
+    ls -la /opt/fil/apache/modules/libphp*.so
 
 # ---------------------------------------------------------------------------
 # runtime images
@@ -169,7 +192,10 @@ RUN ln -sf /opt/php-filc/bin/php /usr/local/bin/php
 RUN set -eux; \
     conf=/opt/fil/apache/conf/httpd.conf; \
     sed -i -E 's|^Listen .*|Listen 8080|; s|^User .*|User www-data|; s|^Group .*|Group www-data|' "$conf"; \
-    printf '\nLoadModule php_module modules/libphp.so\nAddType application/x-httpd-php .php\n<FilesMatch \.php$>\n  SetHandler application/x-httpd-php\n</FilesMatch>\nDirectoryIndex index.php\n' >> "$conf"; \
+    module=$(basename "$(find /opt/fil/apache/modules -maxdepth 1 -name 'libphp*.so' -print -quit)"); \
+    case "$module" in libphp7.so) name=php7_module ;; libphp5.so) name=php5_module ;; libphp.so) name=php_module ;; *) exit 1 ;; esac; \
+    sed -i '/^LoadModule php[0-9]*_module /d' "$conf"; \
+    printf '\nLoadModule %s modules/%s\nAddType application/x-httpd-php .php\n<FilesMatch \.php$>\n  SetHandler application/x-httpd-php\n</FilesMatch>\nDirectoryIndex index.php\n' "$name" "$module" >> "$conf"; \
     printf '<?php echo "php-fil-c ok: ", PHP_VERSION, " on ", php_sapi_name(), "\\n";' \
       > /opt/fil/apache/htdocs/index.php
 EXPOSE 8080
