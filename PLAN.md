@@ -205,3 +205,54 @@ against optfil's libc so the symbols match, then build PHP against them:
 
 This is per-series lib pinning, not a one-liner. Start with libxml 2.9 + OpenSSL
 3.0 for 8.0; the same pattern extends to 7.4 (OpenSSL 1.1 if needed).
+
+---
+
+## 7. Building 7.4 / 7.3 / 7.2 / 5.x — old-Debian investigation (findings)
+
+Idea: build the old PHP lines on an **old Debian** base so the system OpenSSL /
+libxml / glibc already match what old PHP expects, instead of hand-building old
+libs with `filcc` on bookworm. The Dockerfile now takes `DEBIAN_BASE` and rewrites
+apt to `archive.debian.org` for `buster|stretch|jessie`.
+
+Validated:
+- **optfil Fil-C runs on old Debian.** `filcc --version` and a compile+run
+  succeed on bullseye (glibc 2.31), buster (2.28), stretch (2.24) and jessie
+  (2.19). Fil-C is self-contained: it ships its own libc (`libc.so.6666`),
+  loader (`ld-fil1-x86_64.so`), crt objects and headers under `/opt/fil`, and
+  links `-lpizlo -lyolort …`. It does not depend on the host glibc at runtime.
+- **`archive.debian.org` gives consistent old packages** (buster → OpenSSL
+  1.1.1n, libxml 2.9.4, ICU 63). The live `bullseye-security` mirror is currently
+  serving a stale index (404 on the openssl .deb) and bullseye is not on
+  archive-security, so bullseye apt needs `snapshot.debian.org` pinned to a date
+  matching the base image's baked package versions.
+
+Blocker found (why it is not a drop-in):
+- Fil-C's bundled headers are a **full recent-glibc copy** (they define
+  `__MATHDECL_ALIAS` etc., glibc ≥ ~2.29). PHP's build puts `/usr/include` on the
+  path for the system openssl/curl/icu headers; on buster (glibc 2.28) the system
+  `math.h` is pulled but its `#include <bits/…>` resolves to Fil-C's newer `bits`,
+  so `__MATHDECL_ALIAS` is undefined → `mathcalls-helper-functions.h` fails to
+  parse. Forcing `-I/opt/fil/include` ahead of `-I/usr/include` does **not** fix
+  it: Fil-C's `math.h` is conditionally compiled against the host `__GLIBC__`
+  version macros (from the system `features.h`), so it still defers to the old
+  system math.h. Fil-C's headers are effectively coupled to a bookworm-era glibc.
+- Consequence: the glibc floor tracks Fil-C's bundled headers, not the compiler.
+  7.x wants OpenSSL 1.1.1 (bullseye/buster); 5.x wants OpenSSL 1.0.x (stretch/
+  jessie, glibc ≤ 2.24) which is far below Fil-C's header expectations.
+
+Recommended path (instead of old-Debian base):
+1. **Stay on bookworm** (glibc compatible with Fil-C headers) and **build the old
+   OpenSSL with `filcc`** into `/opt/fil`, then point PHP at it via
+   `--with-openssl=/opt/fil` + an `openssl.pc`. For 7.4/7.3/7.2 that is OpenSSL
+   1.1.1; for 5.6 it is OpenSSL 1.0.2. This keeps Fil-C's headers happy and only
+   swaps the crypto lib. The libxml-2.9-with-filcc step already added for 8.0 is
+   the same pattern.
+2. Verify the Fil-C port patch still applies per series (7.4 is drafted; 7.3/7.2/
+   5.6 need porting — older Zend internals, weakrefs/fibers differences).
+3. Apply the CVE backport (`patches/cve-backports/`) where it exists; for 5.x the
+   ondrej PPA also carries "Avoid state corruption via bailout" — re-base its
+   `main/rfc1867.c` hunks against the target tarball as done for 8.0/8.1/7.4.
+
+Net: old-Debian is a dead end because of Fil-C's glibc-coupled headers; the
+filcc-built-old-OpenSSL-on-bookworm route is the one to pursue.

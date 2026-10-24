@@ -20,6 +20,10 @@ ARG FILC_VERSION=0.686
 # ---------------------------------------------------------------------------
 FROM ${DEBIAN_BASE} AS deps
 ARG FILC_VERSION
+ARG DEBIAN_BASE
+# Debian releases that are EOL moved to archive.debian.org; point apt there so
+# the index and pool stay self-consistent (the live mirrors lag/rotate).
+RUN if [ -f /etc/os-release ]; then . /etc/os-release; case "${VERSION_CODENAME}" in buster|stretch|jessie) printf 'deb http://archive.debian.org/debian %s main\ndeb http://archive.debian.org/debian-security %s/updates main\n' "$VERSION_CODENAME" "$VERSION_CODENAME" > /etc/apt/sources.list; printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/90nocheckvalid;; esac; fi
 ARG APR_VER=1.7.4
 ARG APU_VER=1.6.3
 ARG HTTPD_VER=2.4.62
@@ -118,6 +122,8 @@ RUN set -eux; \
 # runtime images
 # ---------------------------------------------------------------------------
 FROM ${DEBIAN_BASE} AS runtime
+ARG DEBIAN_BASE
+RUN if [ -f /etc/os-release ]; then . /etc/os-release; case "${VERSION_CODENAME}" in buster|stretch|jessie) printf 'deb http://archive.debian.org/debian %s main\ndeb http://archive.debian.org/debian-security %s/updates main\n' "$VERSION_CODENAME" "$VERSION_CODENAME" > /etc/apt/sources.list; printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/90nocheckvalid;; esac; fi
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates tzdata \
  && rm -rf /var/lib/apt/lists/* \
