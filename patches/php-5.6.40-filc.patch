@@ -1,0 +1,141 @@
+--- a/ext/standard/php_string.h
++++ b/ext/standard/php_string.h
+@@ -156,7 +156,7 @@
+ # define php_mblen(ptr, len) 1
+ #else
+ # if defined(_REENTRANT) && defined(HAVE_MBRLEN) && defined(HAVE_MBSTATE_T)
+-#  define php_mblen(ptr, len) ((ptr) == NULL ? memset(&BG(mblen_state), 0, sizeof(BG(mblen_state))): (int)mbrlen(ptr, len, &BG(mblen_state)))
++#  define php_mblen(ptr, len) ((ptr) == NULL ? (memset(&BG(mblen_state), 0, sizeof(BG(mblen_state))), 0): (int)mbrlen(ptr, len, &BG(mblen_state)))
+ # else
+ #  define php_mblen(ptr, len) mblen(ptr, len)
+ # endif
+--- a/main/streams/cast.c
++++ b/main/streams/cast.c
+@@ -109,7 +109,7 @@
+ 	return php_stream_write(((php_stream *)cookie), (char *)buffer, size);
+ }
+ 
+-# ifdef COOKIE_SEEKER_USES_OFF64_T
++# if defined(COOKIE_SEEKER_USES_OFF64_T) || defined(__FILC__)
+ static int stream_cookie_seeker(void *cookie, __off64_t *position, int whence)
+ {
+ 	TSRMLS_FETCH();
+--- a/Zend/zend_alloc.c
++++ b/Zend/zend_alloc.c
+@@ -2458,7 +2458,19 @@
+ 	return _zend_mm_block_size(AG(mm_heap), ptr ZEND_FILE_LINE_RELAY_CC ZEND_FILE_LINE_ORIG_RELAY_CC);
+ }
+ 
+-#if defined(__GNUC__) && (defined(__native_client__) || defined(i386))
++#if defined(__FILC__)
++static inline size_t safe_address(size_t nmemb, size_t size, size_t offset)
++{
++	size_t result;
++	if (__builtin_mul_overflow(nmemb, size, &result) ||
++	    __builtin_add_overflow(result, offset, &result)) {
++		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		return 0;
++	}
++	return result;
++}
++
++#elif defined(__GNUC__) && (defined(__native_client__) || defined(i386))
+ 
+ static inline size_t safe_address(size_t nmemb, size_t size, size_t offset)
+ {
+@@ -2731,7 +2743,11 @@
+ {
+ 	char *tmp = getenv("USE_ZEND_ALLOC");
+ 
++#ifdef __FILC__
++	if (!tmp || !zend_atoi(tmp, 0)) {
++#else
+ 	if (tmp && !zend_atoi(tmp, 0)) {
++#endif
+ 		alloc_globals->mm_heap = malloc(sizeof(struct _zend_mm_heap));
+ 		memset(alloc_globals->mm_heap, 0, sizeof(struct _zend_mm_heap));
+ 		alloc_globals->mm_heap->use_zend_alloc = 0;
+--- a/Zend/zend_gc.h
++++ b/Zend/zend_gc.h
+@@ -47,6 +47,14 @@
+ #define GC_GREY   0x02
+ #define GC_PURPLE 0x03
+ 
++#ifdef __FILC__
++#define GC_ADDRESS(v) ((gc_root_buffer*)((char*)(v) - ((zend_uintptr_t)(v) & GC_COLOR)))
++#define GC_SET_ADDRESS(v, a) (v) = (gc_root_buffer*)((char*)(a) + ((zend_uintptr_t)(v) & GC_COLOR))
++#define GC_GET_COLOR(v) (((zend_uintptr_t)(v)) & GC_COLOR)
++#define GC_SET_COLOR(v, c) (v) = (gc_root_buffer*)((char*)GC_ADDRESS(v) + (c))
++#define GC_SET_BLACK(v) (v) = GC_ADDRESS(v)
++#define GC_SET_PURPLE(v) (v) = (gc_root_buffer*)((char*)GC_ADDRESS(v) + GC_PURPLE)
++#else
+ #define GC_ADDRESS(v) \
+ 	((gc_root_buffer*)(((zend_uintptr_t)(v)) & ~GC_COLOR))
+ #define GC_SET_ADDRESS(v, a) \
+@@ -59,6 +67,7 @@
+ 	(v) = ((gc_root_buffer*)(((zend_uintptr_t)(v)) & ~GC_COLOR))
+ #define GC_SET_PURPLE(v) \
+ 	(v) = ((gc_root_buffer*)(((zend_uintptr_t)(v)) | GC_PURPLE))
++#endif
+ 
+ #define GC_ZVAL_INIT(z) \
+ 	((zval_gc_info*)(z))->u.buffered = NULL
+--- a/Zend/zend_qsort.c
++++ b/Zend/zend_qsort.c
+@@ -27,6 +27,16 @@
+ 
+ static void _zend_qsort_swap(void *a, void *b, size_t siz)
+ {
++#ifdef __FILC__
++	void *tmp = malloc(siz);
++	if (!tmp) {
++		zend_error_noreturn(E_ERROR, "Out of memory while sorting");
++	}
++	memcpy(tmp, a, siz);
++	memcpy(a, b, siz);
++	memcpy(b, tmp, siz);
++	free(tmp);
++#else
+ 	register char  *tmp_a_char;
+ 	register char  *tmp_b_char;
+ 	register int   *tmp_a_int;
+@@ -52,6 +62,7 @@
+ 		*tmp_a_char++ = *tmp_b_char;
+ 		*tmp_b_char++ = t_c;
+ 	}
++#endif
+ }
+ 
+ ZEND_API void zend_qsort_r(void *base, size_t nmemb, size_t siz, compare_r_func_t compare, void *arg TSRMLS_DC)
+--- a/ext/zlib/zlib.c
++++ b/ext/zlib/zlib.c
+@@ -1032,7 +1032,7 @@
+ 	PHP_MINFO(zlib),
+ 	"2.0",
+ 	PHP_MODULE_GLOBALS(zlib),
+-	ZEND_MODULE_GLOBALS_CTOR_N(zlib),
++	(void (*)(void *)) ZEND_MODULE_GLOBALS_CTOR_N(zlib),
+ 	NULL,
+ 	NULL,
+ 	STANDARD_MODULE_PROPERTIES_EX
+--- a/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
++++ b/ext/mbstring/libmbfl/filters/mbfilter_utf8_mobile.c
+@@ -36,6 +36,7 @@
+ #include "mbfilter_utf8_mobile.h"
+ #include "mbfilter_sjis_mobile.h"
+ 
++extern int mbfl_filt_put_invalid_char(int c, mbfl_convert_filter *filter);
+ extern int mbfl_filt_ident_utf8(int c, mbfl_identify_filter *filter);
+ extern int mbfl_filt_conv_utf8_wchar_flush(mbfl_convert_filter *filter);
+ 
+--- a/ext/dom/dom_iterators.c
++++ b/ext/dom/dom_iterators.c
+@@ -42,7 +42,7 @@
+ 	xmlNotation *notation;
+ };
+ 
+-static void itemHashScanner (void *payload, void *data, xmlChar *name) /* {{{ */
++static void itemHashScanner (void *payload, void *data, const xmlChar *name) /* {{{ */
+ {
+ 	nodeIterator *priv = (nodeIterator *)data;
+ 

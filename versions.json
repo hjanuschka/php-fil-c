@@ -54,6 +54,14 @@
       "patch": "php-7.4.33-filc.patch",
       "status": "pending",
       "note": "CLI/FPM/Apache build and run locally with the CVE backport, but HTTPS panics in OpenSSL 1.1.1w BN_nist_mod_384; do not publish"
+    },
+    {
+      "series": "5.6",
+      "version": "5.6.40",
+      "sha256": "1369a51eee3995d7fbd1c5342e5cc917760e276d561595b6052b21ace2656d1c",
+      "patch": "php-5.6.40-filc.patch",
+      "status": "pending",
+      "note": "Experimental CLI/FPM/Apache with XML, curl, mbstring and DB drivers; HTTPS panics in OpenSSL 1.0.2u, session disabled, CVE backport absent; do not publish"
     }
   ]
 }

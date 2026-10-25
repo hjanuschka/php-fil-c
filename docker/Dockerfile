@@ -85,6 +85,8 @@ COPY patches/ /build/patches/
 RUN set -eux; \
     cd /build; \
     curl -fLO "https://www.php.net/distributions/php-${PHP_VERSION}.tar.xz"; \
+    php_sha=$(python3 -c 'import json,sys; print(next(v["sha256"] for v in json.load(open("/build/versions.json"))["versions"] if v["version"] == sys.argv[1]))' "$PHP_VERSION"); \
+    echo "$php_sha  php-${PHP_VERSION}.tar.xz" | sha256sum -c -; \
     mkdir -p src && tar -xf "php-${PHP_VERSION}.tar.xz" -C src; \
     cd "src/php-${PHP_VERSION}"; \
     cve="/build/patches/cve-backports/php-${PHP_VERSION}-CVE-2026-109618-109619.patch"; \
@@ -109,7 +111,9 @@ RUN set -eux; \
       curl -fL "$SSL_URL" -o /tmp/ssl.tgz; mkdir -p /tmp/ssl && tar -xf /tmp/ssl.tgz -C /tmp/ssl; \
       ( cd "/tmp/ssl/openssl-${SSL_VER}" && CC=/opt/fil/bin/filcc ./Configure linux-x86_64 no-asm shared --prefix=/opt/fil --libdir=lib >/dev/null && sed -i -E 's/-Wl,--version-script=lib(crypto|ssl)\.map//g' Makefile && make -j"$(nproc)" build_libs >/dev/null && mkdir -p /opt/fil/lib /opt/fil/include && cp -a libssl.so* libcrypto.so* /opt/fil/lib/ && rm -rf /opt/fil/include/openssl && cp -aL include/openssl /opt/fil/include/ ); \
       printf 'prefix=/opt/fil\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: OpenSSL\nDescription: OpenSSL (Fil-C)\nVersion: %s\nLibs: -L${libdir} -lssl -lcrypto\nCflags: -I${includedir}\n' "$SSL_VER" > /opt/fil/lib/pkgconfig/openssl.pc; \
-      ( cd "/tmp/onig-${ONIG_VER}" && patch -p1 --silent -i /build/patches/oniguruma-6.9.9-filc.patch && make -j"$(nproc)" >/dev/null && make install >/dev/null ); \
+      if [ "${PHP_VERSION#7.}" != "${PHP_VERSION}" ]; then \
+        ( cd "/tmp/onig-${ONIG_VER}" && patch -p1 --silent -i /build/patches/oniguruma-6.9.9-filc.patch && make -j"$(nproc)" >/dev/null && make install >/dev/null ); \
+      fi; \
       curl -fL --retry 5 "https://curl.se/download/curl-8.11.1.tar.xz" -o /tmp/curl.tar.xz; \
       ( cd /tmp && tar -xf curl.tar.xz && cd curl-8.11.1 && \
         PKG_CONFIG_PATH=/opt/fil/lib/pkgconfig ./configure --prefix=/opt/fil --disable-static --with-openssl=/opt/fil --without-libpsl --without-nghttp2 >/dev/null && \
@@ -122,6 +126,16 @@ RUN set -eux; \
       5.*|7.*) SSL_FLAGS="--with-openssl=/opt/fil"; EOL_FIXES="ac_cv_func_strlcpy=no"; BZ2_FLAG=""; EOL_CPPFLAGS="-I/opt/fil/include -D_DEFAULT_SOURCE" ;; \
       *) SSL_FLAGS="--with-openssl"; EOL_FIXES=""; BZ2_FLAG="--with-bz2"; EOL_CPPFLAGS="" ;; \
     esac; \
+    if [ "${PHP_VERSION#5.}" != "${PHP_VERSION}" ]; then \
+      CPPFLAGS="${EOL_CPPFLAGS}" ./configure --prefix=/opt/php-filc \
+        --disable-all --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
+        --disable-cgi --without-pear --with-openssl=/opt/fil --with-zlib \
+        --enable-mbstring --enable-pdo --with-mysqli=mysqlnd \
+        --with-pdo-mysql=mysqlnd --enable-sockets --with-curl=/opt/fil \
+        --enable-libxml --with-libxml-dir=/opt/fil --enable-dom --enable-xml \
+        --enable-simplexml --with-sqlite3=/opt/fil --with-pdo-sqlite=/opt/fil \
+        ac_cv_what_readdir_r=POSIX; \
+    else \
     PKG_CONFIG_PATH=/opt/fil/lib/pkgconfig \
     PKG_CONFIG=/opt/fil/bin/pkg-config \
     CPPFLAGS="${EOL_CPPFLAGS}" CXXFLAGS="-std=c++17" LIBS="-lc++abi" \
@@ -136,6 +150,7 @@ RUN set -eux; \
       --enable-exif --enable-ftp --enable-shmop --enable-sysvsem --enable-pcntl \
       --with-libedit \
       ac_cv_have_decl_UFFDIO_WRITEPROTECT_MODE_WP=no ${EOL_FIXES}; \
+    fi; \
     case "${PHP_VERSION}" in 5.*|7.*) sed -i -e 's@ -I/usr/include @ @g' -e 's@ -I"/usr/include" @ @g' Makefile ;; esac; \
     make -j"$(nproc)"; \
     make install; \
@@ -173,11 +188,15 @@ RUN set -eux; \
     mkdir -p /usr/local/var/run /var/www/html; \
     cd /usr/local/etc; \
     [ -f php-fpm.conf ] || cp php-fpm.conf.default php-fpm.conf; \
-    mkdir -p php-fpm.d; \
-    [ -f php-fpm.d/www.conf ] || cp php-fpm.d/www.conf.default php-fpm.d/www.conf; \
-    sed -i 's|^include=.*|include=/usr/local/etc/php-fpm.d/*.conf|' php-fpm.conf; \
+    if [ -f php-fpm.d/www.conf.default ]; then \
+      [ -f php-fpm.d/www.conf ] || cp php-fpm.d/www.conf.default php-fpm.d/www.conf; \
+      sed -i 's|^include=.*|include=/usr/local/etc/php-fpm.d/*.conf|' php-fpm.conf; \
+      pool=php-fpm.d/www.conf; \
+    else \
+      pool=php-fpm.conf; \
+    fi; \
     sed -i '/^\[global\]/a error_log = /proc/self/fd/2\npid = /usr/local/var/run/php-fpm.pid' php-fpm.conf; \
-    sed -i -E 's|^;?listen = .*|listen = 9000|; s|^;?clear_env = .*|clear_env = no|; s|^;?catch_workers_output = .*|catch_workers_output = yes|; s|^user = .*|user = www-data|; s|^group = .*|group = www-data|' php-fpm.d/www.conf; \
+    sed -i -E 's|^;?listen = .*|listen = 9000|; s|^;?clear_env = .*|clear_env = no|; s|^;?catch_workers_output = .*|catch_workers_output = yes|; s|^user = .*|user = www-data|; s|^group = .*|group = www-data|' "$pool"; \
     chown -R www-data:www-data /var/www/html /usr/local/var/run
 EXPOSE 9000
 WORKDIR /var/www/html

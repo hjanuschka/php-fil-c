@@ -248,8 +248,8 @@ Recommended path (instead of old-Debian base):
    1.1.1; for 5.6 it is OpenSSL 1.0.2. This keeps Fil-C's headers happy and only
    swaps the crypto lib. The libxml-2.9-with-filcc step already added for 8.0 is
    the same pattern.
-2. Verify the Fil-C port patch still applies per series (7.4 is drafted; 7.3/7.2/
-   5.6 need porting — older Zend internals, weakrefs/fibers differences).
+2. Verify the Fil-C port patch per series (7.4 and a 5.6 prototype now
+   build; 7.3/7.2 still need porting and runtime checks).
 3. Apply the CVE backport (`patches/cve-backports/`) where it exists; for 5.x the
    ondrej PPA also carries "Avoid state corruption via bailout" — re-base its
    `main/rfc1867.c` hunks against the target tarball as done for 8.0/8.1/7.4.
@@ -295,4 +295,28 @@ have dodged, now that we stay on bookworm):
   capability. A naive branch-based replacement may introduce crypto timing
   side channels, so the correct solution still needs design and TLS tests.
   bz2 is omitted: system libbz2 cannot satisfy Fil-C's symbol rewriting.
-  7.3/7.2/5.x PHP ports and CVE backports remain pending.
+  7.3/7.2 and PHP 5.x CVE backports remain pending.
+
+### Bookworm 5.6 checkpoint (2026-10-25)
+
+- PHP 5.6.40 builds with Fil-C on bookworm using OpenSSL 1.0.2u and the
+  initial `patches/php-5.6.40-filc.patch`. Local CLI, FPM and Apache images
+  build from `docker/Dockerfile`; CLI runs arrays, sorting and `openssl_digest`,
+  FPM starts, and Apache serves `/index.php` through `libphp5.so`.
+- This is a **selectively enabled `--disable-all` build**, not functional
+  WordPress: mbstring, zlib, sockets, mysqlnd/mysqli, PDO MySQL, XML/DOM,
+  SimpleXML, SQLite, and HTTP curl work. Session is disabled, and the default
+  WordPress 6.7 requires a newer PHP. HTTPS curl panics inside OpenSSL 1.0.2u
+  `BN_nist_mod_256`, the same pointer-mask issue as 7.4's OpenSSL 1.1.1.
+  PHP 5.6's
+  `php-fpm.conf.default` contains its `[www]` pool, unlike newer releases'
+  `php-fpm.d/www.conf.default`; the runtime stage handles both layouts.
+- Fil-C PHP 5.6 requires POSIX `readdir_r` detection (configure's run probe
+  incorrectly chooses the old signature), the `fopencookie` offset-pointer
+  signature, a portable overflow check, capability-preserving GC color
+  tagging and qsort swaps. The initial port uses the system allocator by
+  default: Zend's chunk allocator weakens Fil-C's bounds, and memory usage
+  accounting needs follow-up.
+- **Do not publish 5.6:** neither CVE-2026-109618/109619 has been backported
+  to PHP 5.6; TLS traps in the Fil-C-built legacy OpenSSL. Old WordPress
+  compatibility and a session backport need separate verification.
