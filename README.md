@@ -46,32 +46,36 @@ released by upstream PHP for those branches.
 | **8.0.30** | EOL | ✅ backported 109618 · 109619 | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **7.4.33** | EOL | backport applied | [`php-7.4.33-filc.patch`](patches/php-7.4.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
 | **7.3.33** | EOL | backport applied | [`php-7.3.33-filc.patch`](patches/php-7.3.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
-| **5.6.40** | EOL | not backported | [`php-5.6.40-filc.patch`](patches/php-5.6.40-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
-| 7.2 / older 5.x | EOL | backport pending | none | ⏳ | ⏳ | ⏳ | ⏳ |
+| **7.2.34** | EOL | backport applied | [`php-7.2.34-filc.patch`](patches/php-7.2.34-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
+| **5.6.40** | EOL | backport applied | [`php-5.6.40-filc.patch`](patches/php-5.6.40-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
+| older 5.x | EOL | backport pending | none | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Legend: ✅ built + smoke-tested · ⚠️ builds and runs locally but unsafe to publish · ⏳ not verified.
 `versions.json` is the machine-readable source of truth for this table.
 
 **Why these versions?** 8.2.35, 8.3.36, 8.4.27 and 8.5.12 are exactly the
 releases PHP shipped the two RCE fixes in. Older lines (8.1, 8.0, 7.4,
-7.3, 5.6) are EOL
-and did not get the fixes upstream, so supporting them means backporting the
-CVE patches *and* the Fil-C port, plus building libxml/OpenSSL versions that
-old PHP can compile against inside the image -- see [PLAN.md](PLAN.md).
+7.3, 7.2, 5.6) are EOL and did not get the fixes upstream, so supporting
+those lines means backporting the CVE patches *and* the Fil-C port, plus
+building libxml/OpenSSL versions that old PHP can compile against inside
+the image -- see [PLAN.md](PLAN.md).
 
 **7.4 is not publishable yet.** Local CLI, FPM and Apache images build, CLI
 runs mbstring and HTTP curl, and Apache serves `/index.php`. HTTPS curl panics
 inside Fil-C-built OpenSSL 1.1.1w's `BN_nist_mod_384` when masked pointer
 selection loses its capability. No 7.4 image is published; fixing this
 without regressing cryptographic timing behavior is required first. The
-7.4 build also omits bz2 until a Fil-C-built libbz2 is available.
+7.4 build also omits bz2 until a Fil-C-built libbz2 is available. Its EOL
+CVE and multipart-limit backports are applied, but security testing is
+incomplete. Its system allocator also bypasses PHP's `memory_limit`.
 
-**7.3 is unpublished and incomplete.** CLI, FPM and Apache start, with
-mbstring, XML, session, SQLite and MySQL drivers, and HTTP curl. HTTPS curl
-panics in OpenSSL 1.1.1w's `BN_nist_mod_384`. The Fil-C system allocator
-currently bypasses PHP's `memory_limit`: with a 1 MiB limit, an 8 MiB string
-allocates and `memory_get_usage()` returns 0. The CVE backport is applied,
-but do not process untrusted requests or publish these images.
+**7.3 and 7.2 are unpublished and incomplete.** Local CLI, FPM and Apache
+images run with mbstring, XML, session, SQLite and MySQL drivers, and HTTP
+curl. Both have EOL CVE and multipart-limit backports applied, but HTTPS
+curl panics in OpenSSL 1.1.1w's `BN_nist_mod_384`. The Fil-C system
+allocator bypasses PHP's `memory_limit`: with a 1 MiB limit, an 8 MiB
+string allocates and `memory_get_usage()` returns 0. Do not process
+untrusted requests or publish these images.
 
 **5.6 is also unpublished and incomplete.** Local Fil-C-built CLI, FPM,
 and Apache images run with OpenSSL 1.0.2u; Apache serves `/index.php`.
@@ -79,8 +83,10 @@ This is a `--disable-all` build with selected extensions (OpenSSL, zlib,
 mbstring, sockets, curl, libxml/DOM/SimpleXML, SQLite and MySQL drivers),
 not a WordPress image: session is disabled, and the bundled WordPress 6.7
 requires a newer PHP. HTTPS curl panics in OpenSSL 1.0.2u's `BN_nist_mod_256`.
-The system-allocator workaround bypasses `memory_limit` here too. No PHP 5.6
-CVE backport has been applied. Do not use it to process untrusted requests.
+The system-allocator workaround bypasses `memory_limit` here too. The EOL
+CVE backport and multipart part limit are applied, but session remains
+absent and security regression testing is incomplete. Do not use it to
+process untrusted requests.
 
 ## Images
 
@@ -192,10 +198,10 @@ Fil-C turns memory-safety violations (the OOB read, the use-after-free) into a
 the recent PHP session/OOM RCEs. It does **not** fix the underlying logic, and
 a stale pointer kept alive by the GC may not panic at all. Published images
 use **patched** PHP with Fil-C layered on top as defence-in-depth; the local
-experimental 5.6 build has no CVE backport and is not publishable.
+experimental 5.6 build has an unverified EOL CVE backport and is not publishable.
 
-Every image sets `session.upload_progress.enabled = 0`, the mitigation
-recommended in GHSA-6wmf-4rv5-p3rp for CVE-2026-109619.
+Every image with the session extension sets `session.upload_progress.enabled = 0`,
+the mitigation recommended in GHSA-6wmf-4rv5-p3rp for CVE-2026-109619.
 
 ## Layout
 

@@ -33,7 +33,7 @@
 +	size_t result;
 +	if (__builtin_mul_overflow(nmemb, size, &result) ||
 +	    __builtin_add_overflow(result, offset, &result)) {
-+		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
 +		return 0;
 +	}
 +	return result;
@@ -89,7 +89,7 @@
 +#ifdef __FILC__
 +	void *tmp = malloc(siz);
 +	if (!tmp) {
-+		zend_error_noreturn(E_ERROR, "Out of memory while sorting");
++		zend_mm_safe_error_ex("Out of memory while sorting");
 +	}
 +	memcpy(tmp, a, siz);
 +	memcpy(a, b, siz);

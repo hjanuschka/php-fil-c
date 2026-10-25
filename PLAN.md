@@ -248,11 +248,11 @@ Recommended path (instead of old-Debian base):
    1.1.1; for 5.6 it is OpenSSL 1.0.2. This keeps Fil-C's headers happy and only
    swaps the crypto lib. The libxml-2.9-with-filcc step already added for 8.0 is
    the same pattern.
-2. Verify the Fil-C port patch per series (7.4, 7.3 and a 5.6 prototype now
-   build; 7.2 still needs porting and runtime checks).
-3. Apply the CVE backport (`patches/cve-backports/`) where it exists; for 5.x the
-   ondrej PPA also carries "Avoid state corruption via bailout" — re-base its
-   `main/rfc1867.c` hunks against the target tarball as done for 8.0/8.1/7.4.
+2. Verify the Fil-C port patch per series (7.4, 7.3, 7.2 and a 5.6
+   prototype now build locally; TLS and memory limits still block release).
+3. Apply the CVE backport (`patches/cve-backports/`) where it exists. The
+   5.6 PPA fix applies with its multipart part limit backport; other 5.x
+   series still need a port and security testing.
 
 Net: old-Debian is a dead end because of Fil-C's glibc-coupled headers; the
 filcc-built-old-OpenSSL-on-bookworm route is the one to pursue.
@@ -276,8 +276,8 @@ have dodged, now that we stay on bookworm):
 ### Bookworm 7.4 checkpoint (2026-10-24)
 
 - Fil-C builds OpenSSL 1.1.1w shared libraries and OpenSSL 1.0.2u's
-  `build_libs`. OpenSSL 1.0.2u links and runs a small Fil-C digest program,
-  but has **not** been linked into PHP 5.x. Its `include/openssl` is a
+  `build_libs`. OpenSSL 1.0.2u links and runs a Fil-C digest program and
+  the PHP 5.6 prototype. Its `include/openssl` is a
   symlink farm, so copying it with `cp -a` makes broken headers; use `cp -aL`.
   OpenSSL 1.1.1's linker version scripts hide Fil-C-renamed `pizlonated_*`
   symbols; removing the scripts for both libraries enables real PHP links.
@@ -289,13 +289,28 @@ have dodged, now that we stay on bookworm):
   links OpenSSL 3 and mixing both OpenSSL ABIs panics in TLS.
 - CLI runs PHP, mbstring, HTTP curl, random_bytes and openssl_digest;
   Apache serves `/index.php`; FPM starts. `session.upload_progress.enabled=0`.
+  The bailout and multipart-limit backports apply; with a temporary limit of
+  one part, a two-field multipart POST exposes only the first field.
   PHP 7.4's Apache module is named `libphp7.so`, not `libphp.so`.
 - **Do not publish 7.4 yet:** HTTPS curl panics in `BN_nist_mod_384` inside
   OpenSSL 1.1.1. The constant-time pointer-mask selection loses Fil-C's
   capability. A naive branch-based replacement may introduce crypto timing
   side channels, so the correct solution still needs design and TLS tests.
-  bz2 is omitted: system libbz2 cannot satisfy Fil-C's symbol rewriting.
-  7.2 and PHP 5.x CVE backports remain pending.
+  The system allocator bypasses `memory_limit` here as well. bz2 is omitted:
+  system libbz2 cannot satisfy Fil-C's symbol rewriting.
+  Other PHP 5.x CVE backports remain pending.
+
+### Bookworm 7.2 checkpoint (2026-10-25)
+
+- PHP 7.2.34's Fil-C port and the EOL CVE backport plus `ZSTR_MAX_LEN`
+  and `max_multipart_body_parts` prerequisites compile from the repository
+  Dockerfile. Local CLI, FPM and Apache start; CLI runs typed arguments,
+  mbstring, DOM, SQLite, MySQL drivers, session and HTTP curl. PHP 7.2's
+  singleton GPC array needs at least two buckets for Fil-C-aligned entries;
+  the one-bucket EOL backport traps when handling multipart POSTs.
+- **Do not publish 7.2:** HTTPS curl traps in OpenSSL 1.1.1w's
+  `BN_nist_mod_384`, and `memory_limit=1M` allows an 8 MiB string while
+  `memory_get_usage()` stays at zero.
 
 ### Bookworm 7.3 checkpoint (2026-10-25)
 
@@ -304,7 +319,7 @@ have dodged, now that we stay on bookworm):
   CLI runs typed class arguments, mbstring, DOM, SQLite, and HTTP curl.
 - Its bundled Oniguruma must store hash-table pointers as pointers rather
   than integers. The CVE-2026-109618/109619 backport from deb.sury.org
-  applies with its prerequisite `ZSTR_MAX_LEN` patch.
+  applies with its `ZSTR_MAX_LEN` and multipart-limit prerequisites.
 - **Do not publish 7.3:** HTTPS curl traps in OpenSSL's `BN_nist_mod_384`,
   and the system-allocator workaround bypasses PHP's `memory_limit` and
   `memory_get_usage()`. `memory_limit=1M` allows an 8 MiB string. The backport
@@ -323,15 +338,19 @@ have dodged, now that we stay on bookworm):
   `BN_nist_mod_256`, the same pointer-mask issue as 7.4's OpenSSL 1.1.1.
   The system-allocator workaround also bypasses `memory_limit` (8 MiB string
   allowed with `memory_limit=1M`) and returns zero for `memory_get_usage()`.
-  PHP 5.6's
-  `php-fpm.conf.default` contains its `[www]` pool, unlike newer releases'
-  `php-fpm.d/www.conf.default`; the runtime stage handles both layouts.
+- PHP 5.6's `php-fpm.conf.default` contains its `[www]` pool, unlike newer
+  releases' `php-fpm.d/www.conf.default`; the runtime stage handles both layouts.
 - Fil-C PHP 5.6 requires POSIX `readdir_r` detection (configure's run probe
   incorrectly chooses the old signature), the `fopencookie` offset-pointer
   signature, a portable overflow check, capability-preserving GC color
   tagging and qsort swaps. The initial port uses the system allocator by
   default: Zend's chunk allocator weakens Fil-C's bounds, and memory usage
   accounting needs follow-up.
-- **Do not publish 5.6:** neither CVE-2026-109618/109619 has been backported
-  to PHP 5.6; TLS traps in the Fil-C-built legacy OpenSSL. Old WordPress
-  compatibility and a session backport need separate verification.
+- The deb.sury.org PHP 5.6 CVE-2026-109618/109619 backport builds with
+  the `max_multipart_body_parts` limit backport (CVE-2023-0662). The Fil-C
+  overflow path uses its bailout-safe fatal error helper. An isolated
+  `--enable-session` CLI build runs `session_start()` with upload progress
+  disabled, but session stays off in the repository image pending regressions.
+- **Do not publish 5.6:** TLS traps in the Fil-C-built legacy OpenSSL,
+  `memory_limit` is ineffective and session is disabled. The backport still
+  needs security regression tests; older WordPress compatibility is unverified.

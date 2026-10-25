@@ -127,8 +127,8 @@ RUN set -eux; \
       *) SSL_FLAGS="--with-openssl"; EOL_FIXES=""; BZ2_FLAG="--with-bz2"; EOL_CPPFLAGS="" ;; \
     esac; \
     case "${PHP_VERSION}" in \
-      5.*|7.3.*) \
-        session_flag=""; case "${PHP_VERSION}" in 7.3.*) session_flag="--enable-session" ;; esac; \
+      5.*|7.2.*|7.3.*) \
+        session_flag=""; case "${PHP_VERSION}" in 7.2.*|7.3.*) session_flag="--enable-session" ;; esac; \
         CPPFLAGS="${EOL_CPPFLAGS}" ./configure --prefix=/opt/php-filc \
           --disable-all --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
           --disable-cgi --without-pear --with-openssl=/opt/fil --with-zlib \
