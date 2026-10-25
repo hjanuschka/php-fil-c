@@ -65,7 +65,7 @@ jobs:
     if: needs.matrix.outputs.include != '[]'
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm${{ matrix.tag_suffix }}
+      TAG: ghcr.io/${{ github.repository }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm${{ matrix.tag_suffix }}
     strategy:
       fail-fast: false
       matrix:
