@@ -50,7 +50,7 @@ released by upstream PHP for those branches.
 | **5.6.40** | EOL | backport applied | [`php-5.6.40-filc.patch`](patches/php-5.6.40-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
 | older 5.x | EOL | backport pending | none | ⏳ | ⏳ | ⏳ | ⏳ |
 
-Legend: ✅ published and smoke-tested · ⚠️ runs locally but unsafe to publish · ⏳ not verified.
+Legend: ✅ supported and published · ⚠️ experimental only, not production-safe · ⏳ no port.
 `versions.json` is the machine-readable source of truth for this table.
 
 **Why these versions?** 8.2.35, 8.3.36, 8.4.27 and 8.5.12 are exactly the
@@ -60,7 +60,7 @@ those lines means backporting the CVE patches *and* the Fil-C port, plus
 building libxml/OpenSSL versions that old PHP can compile against inside
 the image -- see [PLAN.md](PLAN.md).
 
-**7.4 is not publishable yet.** CLI/FPM/Apache and WordPress 7.1.3 run
+**7.4 is not production-ready.** CLI/FPM/Apache and WordPress 7.1.3 run
 locally, including installation and admin login over MariaDB. The Fil-C
 OpenSSL 1.1.1w port avoids capability-losing pointer masks in NIST reductions;
 HTTPS curl and NIST modulus correctness tests pass. Its constant-time
@@ -69,25 +69,35 @@ The EOL PHP CVE/multipart backports apply; the tracked Fil-C allocator
 enforces `memory_limit` and reports usage across repeated requests.
 The build omits bz2 until a Fil-C-built libbz2 is available.
 
-**7.3 and 7.2 remain unpublished.** Local CLI/FPM/Apache images and
+**7.3 and 7.2 are experimental only.** Local CLI/FPM/Apache images and
 WordPress 6.9.10 installation and admin login work with MariaDB. Fil-C
 OpenSSL 1.1.1w passes HTTPS curl smoke tests; tracked allocations enforce
-`memory_limit`
-and report nonzero usage. EOL PHP CVE/multipart backports apply, but the
+`memory_limit` and report nonzero usage. EOL PHP CVE/multipart backports apply, but the
 legacy OpenSSL port and security regression testing require review.
 Do not expose these experimental images to untrusted requests.
 
-**5.6 remains unpublished.** A selected-extension `--disable-all` image
+**5.6 is experimental only.** A selected-extension `--disable-all` image
 runs WordPress 6.2.14 with MariaDB locally, including installation and
 serving a page and authenticated admin dashboard. Session is enabled
 with upload progress disabled, and tracked Fil-C allocations enforce
-`memory_limit`. The PHP CVE/multipart
-backports apply and patched OpenSSL 1.0.2u passes HTTPS smoke tests.
+`memory_limit`. The PHP CVE/multipart backports apply and patched OpenSSL 1.0.2u passes HTTPS smoke tests.
 OpenSSL 1.0.2u is long EOL; the NIST timing behavior and unbackported
 security issues need review. Do not process untrusted requests with it.
 PCRE JIT is disabled in runtime images because Fil-C cannot allocate
 executable JIT memory; otherwise WordPress login can emit warnings before
 setting authentication cookies.
+
+### Opt-in experimental legacy tags
+
+Run `build-and-publish` manually with `experimental: true` to build and test
+PHP 7.4.33, 7.3.33, 7.2.34 and 5.6.40. Successful builds push only tags
+ending in `-bookworm-experimental`, for example
+`ghcr.io/hjanuschka/php-fil-c:7.2.34-wordpress-bookworm-experimental`.
+They do not receive stable version, series or default tags, and remain
+`pending` in `versions.json`. These images have end-of-life OpenSSL and
+unreviewed cryptographic timing properties; **do not use them for
+production or untrusted traffic**. Earlier PHP 5.x versions have no Fil-C
+port or build matrix entry.
 
 ## Images
 
@@ -207,8 +217,8 @@ Fil-C turns memory-safety violations (the OOB read, the use-after-free) into a
 **panic** rather than an exploitable primitive -- exactly the bug class behind
 the recent PHP session/OOM RCEs. It does **not** fix the underlying logic, and
 a stale pointer kept alive by the GC may not panic at all. Published images
-use **patched** PHP with Fil-C layered on top as defence-in-depth; the local
-experimental 5.6 build has an unverified EOL CVE backport and is not publishable.
+use **patched** PHP with Fil-C layered on top as defence-in-depth. Experimental
+legacy tags include EOL PHP and OpenSSL and are not CVE-complete or production-safe.
 
 Every image with the session extension sets `session.upload_progress.enabled = 0`,
 the mitigation recommended in GHSA-6wmf-4rv5-p3rp for CVE-2026-109619.

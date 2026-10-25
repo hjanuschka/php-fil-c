@@ -374,8 +374,9 @@ have dodged, now that we stay on bookworm):
 - Capability-preserving NIST ports of OpenSSL 1.0.2u/1.1.1w pass modular
   arithmetic comparisons and HTTPS curl. These releases are EOL and the
   timing/security properties of the changes remain unreviewed. This is
-  a publication blocker for all four legacy lines, irrespective of
-  functional success. None are marked supported or published.
+  a blocker for stable publication on all four legacy lines, irrespective
+  of functional success. They remain pending; opt-in experimental tags
+  must not be mistaken for production images.
 - Disable PCRE JIT in runtime images: Fil-C's executable-memory
   restriction otherwise causes intermittent PHP warnings before WordPress
   login cookies, breaking authentication. The WordPress entrypoint no
