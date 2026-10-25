@@ -196,3 +196,188 @@
  		__asm__(
  			"movq	(%1), %%rax\n\t"
  			"subq   (%2), %%rax\n\t"
+--- a/Zend/zend_alloc.c
++++ b/Zend/zend_alloc.c
+@@ -21,6 +21,10 @@
+ /* $Id$ */
+ 
+ #include "zend.h"
++#ifdef __FILC__
++# include <malloc.h>
++# include <stdint.h>
++#endif
+ #include "zend_alloc.h"
+ #include "zend_globals.h"
+ #include "zend_operators.h"
+@@ -432,6 +436,9 @@
+ 	void               *reserve;
+ 	int                 overflow;
+ 	int                 internal;
++#ifdef __FILC__
++	HashTable          *tracked_allocs;
++#endif
+ #if ZEND_MM_CACHE
+ 	unsigned int        cached;
+ 	zend_mm_free_block *cache[ZEND_MM_NUM_BUCKETS];
+@@ -1598,6 +1605,11 @@
+ }
+ #endif
+ 
++#ifdef __FILC__
++static void *tracked_malloc(size_t size);
++static void tracked_free_all(zend_mm_heap *heap);
++#endif
++
+ ZEND_API void zend_mm_shutdown(zend_mm_heap *heap, int full_shutdown, int silent TSRMLS_DC)
+ {
+ 	zend_mm_storage *storage;
+@@ -1606,6 +1618,16 @@
+ 	int internal;
+ 
+ 	if (!heap->use_zend_alloc) {
++#ifdef __FILC__
++		if (heap->_malloc == tracked_malloc) {
++			tracked_free_all(heap);
++			zend_hash_clean(heap->tracked_allocs);
++			if (full_shutdown) {
++				zend_hash_destroy(heap->tracked_allocs);
++				free(heap->tracked_allocs);
++			}
++		}
++#endif
+ 		if (full_shutdown) {
+ 			free(heap);
+ 		}
+@@ -2699,7 +2721,13 @@
+ {
+ 	TSRMLS_FETCH();
+ 
+-	AG(mm_heap)->limit = (memory_limit >= AG(mm_heap)->block_size) ? memory_limit : AG(mm_heap)->block_size;
++	memory_limit = (memory_limit >= AG(mm_heap)->block_size) ? memory_limit : AG(mm_heap)->block_size;
++#ifdef __FILC__
++	if (memory_limit < AG(mm_heap)->real_size) {
++		return FAILURE;
++	}
++#endif
++	AG(mm_heap)->limit = memory_limit;
+ 
+ 	return SUCCESS;
+ }
+@@ -2731,6 +2759,88 @@
+ 	zend_mm_shutdown(AG(mm_heap), full_shutdown, silent TSRMLS_CC);
+ }
+ 
++#ifdef __FILC__
++static void tracked_check_limit(zend_mm_heap *heap, size_t previous, size_t next)
++{
++	size_t used = heap->real_size - previous;
++	if (used > heap->limit || next > heap->limit - used) {
++		zend_mm_safe_error_ex("Allowed memory size of %zu bytes exhausted (tried to allocate %zu bytes)", heap->limit, next);
++	}
++}
++
++static void tracked_update_usage(zend_mm_heap *heap, size_t previous, size_t next)
++{
++	heap->size = heap->size - previous + next;
++	heap->real_size = heap->real_size - previous + next;
++	if (heap->size > heap->peak) heap->peak = heap->size;
++	if (heap->real_size > heap->real_peak) heap->real_peak = heap->real_size;
++}
++
++static void *tracked_malloc(size_t size)
++{
++	zend_mm_heap *heap;
++	void *ptr;
++	size_t actual;
++	TSRMLS_FETCH();
++	heap = AG(mm_heap);
++	tracked_check_limit(heap, 0, size);
++	ptr = __zend_malloc(size);
++	actual = malloc_usable_size(ptr);
++	tracked_check_limit(heap, 0, actual);
++	zend_hash_index_update(heap->tracked_allocs, (ulong)(uintptr_t)ptr,
++	                       &ptr, sizeof(ptr), NULL);
++	tracked_update_usage(heap, 0, actual);
++	return ptr;
++}
++
++static void tracked_free(void *ptr)
++{
++	zend_mm_heap *heap;
++	TSRMLS_FETCH();
++	if (!ptr) return;
++	heap = AG(mm_heap);
++	tracked_update_usage(heap, malloc_usable_size(ptr), 0);
++	zend_hash_index_del(heap->tracked_allocs, (ulong)(uintptr_t)ptr);
++	free(ptr);
++}
++
++static void *tracked_realloc(void *ptr, size_t size)
++{
++	zend_mm_heap *heap;
++	void *res;
++	size_t previous, actual;
++	ulong old_key;
++	TSRMLS_FETCH();
++	if (!ptr) return tracked_malloc(size);
++	heap = AG(mm_heap);
++	old_key = (ulong)(uintptr_t)ptr;
++	previous = malloc_usable_size(ptr);
++	tracked_check_limit(heap, previous, size);
++	res = __zend_realloc(ptr, size);
++	if (!res) return NULL;
++	actual = malloc_usable_size(res);
++	tracked_check_limit(heap, previous, actual);
++	zend_hash_index_del(heap->tracked_allocs, old_key);
++	zend_hash_index_update(heap->tracked_allocs, (ulong)(uintptr_t)res,
++	                       &res, sizeof(res), NULL);
++	tracked_update_usage(heap, previous, actual);
++	return res;
++}
++
++static void tracked_free_all(zend_mm_heap *heap)
++{
++	HashPosition pos;
++	void *value;
++	for (zend_hash_internal_pointer_reset_ex(heap->tracked_allocs, &pos);
++	     zend_hash_get_current_data_ex(heap->tracked_allocs, &value, &pos) == SUCCESS;
++	     zend_hash_move_forward_ex(heap->tracked_allocs, &pos)) {
++		free(*(void **)value);
++	}
++	heap->size = heap->real_size = 0;
++	heap->peak = heap->real_peak = 0;
++}
++#endif
++
+ static void alloc_globals_ctor(zend_alloc_globals *alloc_globals TSRMLS_DC)
+ {
+ 	char *tmp = getenv("USE_ZEND_ALLOC");
+@@ -2743,9 +2853,18 @@
+ 		alloc_globals->mm_heap = malloc(sizeof(struct _zend_mm_heap));
+ 		memset(alloc_globals->mm_heap, 0, sizeof(struct _zend_mm_heap));
+ 		alloc_globals->mm_heap->use_zend_alloc = 0;
++#ifdef __FILC__
++		alloc_globals->mm_heap->limit = ((size_t)-1) >> 1;
++		alloc_globals->mm_heap->_malloc = tracked_malloc;
++		alloc_globals->mm_heap->_free = tracked_free;
++		alloc_globals->mm_heap->_realloc = tracked_realloc;
++		alloc_globals->mm_heap->tracked_allocs = malloc(sizeof(HashTable));
++		zend_hash_init(alloc_globals->mm_heap->tracked_allocs, 1024, NULL, NULL, 1);
++#else
+ 		alloc_globals->mm_heap->_malloc = __zend_malloc;
+ 		alloc_globals->mm_heap->_free = free;
+ 		alloc_globals->mm_heap->_realloc = __zend_realloc;
++#endif
+ 	} else {
+ 		alloc_globals->mm_heap = zend_mm_startup();
+ 	}
+--- a/ext/fileinfo/libmagic/funcs.c
++++ b/ext/fileinfo/libmagic/funcs.c
+@@ -437,6 +437,7 @@
+ 	return ms->o.buf == NULL ? 0 : strlen(ms->o.buf);
+ }
+ 
++protected int
+ file_replace(struct magic_set *ms, const char *pat, const char *rep)
+ {
+ 	zval *patt;

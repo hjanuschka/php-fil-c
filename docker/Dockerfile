@@ -92,6 +92,7 @@ RUN set -eux; \
     cve="/build/patches/cve-backports/php-${PHP_VERSION}-CVE-2026-109618-109619.patch"; \
     if [ -f "$cve" ]; then echo "applying CVE-2026-109618/109619 backport"; patch -p1 --silent -i "$cve"; fi; \
     patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-filc.patch"; \
+    case "${PHP_VERSION}" in 5.*|7.2.*|7.3.*) sed -i -e 's/pharcmd=pharcmd$/pharcmd=/' -e 's/pharcmd_install=install-pharcmd$/pharcmd_install=/' configure ;; esac; \
     sed -i 's|PHP_INTL_CXX_FLAGS="\$INTL_COMMON_FLAGS \$PHP_INTL_STDCXX \$ICU_CXXFLAGS"|PHP_INTL_CXX_FLAGS="$INTL_COMMON_FLAGS $PHP_INTL_STDCXX $ICU_CXXFLAGS -std=c++17"|' configure; \
     case "${PHP_VERSION}" in \
       5.*|7.*|8.0.*) \
@@ -102,14 +103,14 @@ RUN set -eux; \
         ;; \
     esac; \
     case "${PHP_VERSION}" in \
-      7.*) SSL_VER=1.1.1w; SSL_URL="https://www.openssl.org/source/old/1.1.1/openssl-1.1.1w.tar.gz" ;; \
-      5.*) SSL_VER=1.0.2u; SSL_URL="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2u.tar.gz" ;; \
+      7.*) SSL_VER=1.1.1w; SSL_URL="https://www.openssl.org/source/old/1.1.1/openssl-1.1.1w.tar.gz"; SSL_SHA256=cf3098950cb4d853ad95c0841f1f9c6d3dc102dccfcacd521d93925208b76ac8 ;; \
+      5.*) SSL_VER=1.0.2u; SSL_URL="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2u.tar.gz"; SSL_SHA256=ecd0c6ffb493dd06707d38b14bb4d8c2288bb7033735606569d8f90f89669d16 ;; \
       *) SSL_VER="" ;; \
     esac; \
     if [ -n "$SSL_VER" ]; then \
       echo "PHP ${PHP_VERSION}: building OpenSSL ${SSL_VER} with Fil-C (EOL PHP cannot compile against bookworm OpenSSL 3.x)"; \
-      curl -fL "$SSL_URL" -o /tmp/ssl.tgz; mkdir -p /tmp/ssl && tar -xf /tmp/ssl.tgz -C /tmp/ssl; \
-      ( cd "/tmp/ssl/openssl-${SSL_VER}" && CC=/opt/fil/bin/filcc ./Configure linux-x86_64 no-asm shared --prefix=/opt/fil --libdir=lib >/dev/null && sed -i -E 's/-Wl,--version-script=lib(crypto|ssl)\.map//g' Makefile && make -j"$(nproc)" build_libs >/dev/null && mkdir -p /opt/fil/lib /opt/fil/include && cp -a libssl.so* libcrypto.so* /opt/fil/lib/ && rm -rf /opt/fil/include/openssl && cp -aL include/openssl /opt/fil/include/ ); \
+      curl -fL "$SSL_URL" -o /tmp/ssl.tgz; echo "$SSL_SHA256  /tmp/ssl.tgz" | sha256sum -c -; mkdir -p /tmp/ssl && tar -xf /tmp/ssl.tgz -C /tmp/ssl; \
+      ( cd "/tmp/ssl/openssl-${SSL_VER}" && patch -p1 --silent -i "/build/patches/openssl-${SSL_VER}-filc-nist.patch" && CC=/opt/fil/bin/filcc ./Configure linux-x86_64 no-asm shared --prefix=/opt/fil --libdir=lib >/dev/null && sed -i -E 's/-Wl,--version-script=lib(crypto|ssl)\.map//g' Makefile && make -j"$(nproc)" build_libs >/dev/null && mkdir -p /opt/fil/lib /opt/fil/include && cp -a libssl.so* libcrypto.so* /opt/fil/lib/ && rm -rf /opt/fil/include/openssl && cp -aL include/openssl /opt/fil/include/ ); \
       printf 'prefix=/opt/fil\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: OpenSSL\nDescription: OpenSSL (Fil-C)\nVersion: %s\nLibs: -L${libdir} -lssl -lcrypto\nCflags: -I${includedir}\n' "$SSL_VER" > /opt/fil/lib/pkgconfig/openssl.pc; \
       if [ "${PHP_VERSION#7.4.}" != "${PHP_VERSION}" ]; then \
         ( cd "/tmp/onig-${ONIG_VER}" && patch -p1 --silent -i /build/patches/oniguruma-6.9.9-filc.patch && make -j"$(nproc)" >/dev/null && make install >/dev/null ); \
@@ -128,10 +129,12 @@ RUN set -eux; \
     esac; \
     case "${PHP_VERSION}" in \
       5.*|7.2.*|7.3.*) \
-        session_flag=""; case "${PHP_VERSION}" in 7.2.*|7.3.*) session_flag="--enable-session" ;; esac; \
+        session_flag="--enable-session"; \
         CPPFLAGS="${EOL_CPPFLAGS}" ./configure --prefix=/opt/php-filc \
           --disable-all --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
           --disable-cgi --without-pear --with-openssl=/opt/fil --with-zlib \
+          --enable-json --enable-hash --enable-ctype --enable-filter \
+          --enable-tokenizer --enable-phar --enable-fileinfo \
           --enable-mbstring --enable-pdo --with-mysqli=mysqlnd \
           --with-pdo-mysql=mysqlnd --enable-sockets --with-curl=/opt/fil \
           --enable-libxml --with-libxml-dir=/opt/fil --enable-dom --enable-xml \
@@ -176,7 +179,7 @@ COPY --from=php /opt/fil/lib/ /opt/fil/lib/
 # survives the per-SAPI COPYs and matches the official images' conf.d pattern.
 # session.upload_progress.enabled=0 is the CVE-2026-109619 mitigation (GHSA-6wmf-4rv5-p3rp).
 ENV PHP_INI_SCAN_DIR=/usr/local/etc/php/conf.d
-RUN mkdir -p /usr/local/etc/php/conf.d && printf '[PHP]\nmemory_limit = 512M\nupload_max_filesize = 64M\npost_max_size = 64M\nmax_execution_time = 300\ndate.timezone = UTC\nexpose_php = Off\nsession.upload_progress.enabled = 0\n' > /usr/local/etc/php/conf.d/filc.ini
+RUN mkdir -p /usr/local/etc/php/conf.d && printf '[PHP]\nmemory_limit = 512M\nupload_max_filesize = 64M\npost_max_size = 64M\nmax_execution_time = 300\ndate.timezone = UTC\nexpose_php = Off\npcre.jit = 0\nsession.upload_progress.enabled = 0\n' > /usr/local/etc/php/conf.d/filc.ini
 
 FROM runtime AS cli
 COPY --from=php /opt/php-filc/bin/php /usr/local/bin/php
@@ -226,25 +229,23 @@ WORKDIR /var/www/html
 CMD ["/opt/fil/apache/bin/httpd", "-DFOREGROUND"]
 
 # ---------------------------------------------------------------------------
-# wordpress: drop-in for the official `wordpress` image. Same env contract
-# (WORDPRESS_DB_HOST/USER/PASSWORD/NAME, WORDPRESS_* ), Fil-C PHP + Apache.
+# wordpress
 # ---------------------------------------------------------------------------
 FROM apache AS wordpress
-ARG WORDPRESS_VERSION=6.7.1
+ARG WORDPRESS_VERSION=7.1.3
+ARG WORDPRESS_SHA256=d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5
 ENV WORDPRESS_VERSION=${WORDPRESS_VERSION} \
     WORDPRESS_DB_HOST=db \
     WORDPRESS_DB_USER=wordpress \
-    WORDPRESS_DB_PASSWORD=wordpress \
     WORDPRESS_DB_NAME=wordpress \
     WORDPRESS_CONFIG_EXTRA=""
-RUN apt-get update && apt-get install -y --no-install-recommends less mariadb-client curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && curl -fsSL "https://wordpress.org/wordpress-${WORDPRESS_VERSION}.tar.gz" -o /tmp/wp.tar.gz \
+ && echo "${WORDPRESS_SHA256}  /tmp/wp.tar.gz" | sha256sum -c - \
  && rm -rf /opt/fil/apache/htdocs/* \
  && tar -xzf /tmp/wp.tar.gz -C /opt/fil/apache/htdocs --strip-components=1 \
- && rm /tmp/wp.tar.gz \
- && curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /usr/local/bin/wp \
- && chmod +x /usr/local/bin/wp
+ && rm /tmp/wp.tar.gz
 COPY docker/wordpress/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV WORDPRESS_PATH=/opt/fil/apache/htdocs

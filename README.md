@@ -44,13 +44,13 @@ released by upstream PHP for those branches.
 | **8.2.35** | 2026-10 | ✅ 109618 · 109619 | [`php-8.2.35-filc.patch`](patches/php-8.2.35-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.1.32** | EOL | ✅ backported 109618 · 109619 | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
 | **8.0.30** | EOL | ✅ backported 109618 · 109619 | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **7.4.33** | EOL | backport applied | [`php-7.4.33-filc.patch`](patches/php-7.4.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
-| **7.3.33** | EOL | backport applied | [`php-7.3.33-filc.patch`](patches/php-7.3.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
-| **7.2.34** | EOL | backport applied | [`php-7.2.34-filc.patch`](patches/php-7.2.34-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
-| **5.6.40** | EOL | backport applied | [`php-5.6.40-filc.patch`](patches/php-5.6.40-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⏳ |
+| **7.4.33** | EOL | backport applied | [`php-7.4.33-filc.patch`](patches/php-7.4.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| **7.3.33** | EOL | backport applied | [`php-7.3.33-filc.patch`](patches/php-7.3.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| **7.2.34** | EOL | backport applied | [`php-7.2.34-filc.patch`](patches/php-7.2.34-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| **5.6.40** | EOL | backport applied | [`php-5.6.40-filc.patch`](patches/php-5.6.40-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
 | older 5.x | EOL | backport pending | none | ⏳ | ⏳ | ⏳ | ⏳ |
 
-Legend: ✅ built + smoke-tested · ⚠️ builds and runs locally but unsafe to publish · ⏳ not verified.
+Legend: ✅ published and smoke-tested · ⚠️ runs locally but unsafe to publish · ⏳ not verified.
 `versions.json` is the machine-readable source of truth for this table.
 
 **Why these versions?** 8.2.35, 8.3.36, 8.4.27 and 8.5.12 are exactly the
@@ -60,34 +60,34 @@ those lines means backporting the CVE patches *and* the Fil-C port, plus
 building libxml/OpenSSL versions that old PHP can compile against inside
 the image -- see [PLAN.md](PLAN.md).
 
-**7.4 is not publishable yet.** Local CLI, FPM and Apache images build, CLI
-runs mbstring and HTTP curl, and Apache serves `/index.php`. HTTPS curl panics
-inside Fil-C-built OpenSSL 1.1.1w's `BN_nist_mod_384` when masked pointer
-selection loses its capability. No 7.4 image is published; fixing this
-without regressing cryptographic timing behavior is required first. The
-7.4 build also omits bz2 until a Fil-C-built libbz2 is available. Its EOL
-CVE and multipart-limit backports are applied, but security testing is
-incomplete. Its tracked Fil-C allocator enforces `memory_limit` and reports
-nonzero usage and peak usage in local CLI, FPM and Apache tests.
+**7.4 is not publishable yet.** CLI/FPM/Apache and WordPress 7.1.3 run
+locally, including installation and admin login over MariaDB. The Fil-C
+OpenSSL 1.1.1w port avoids capability-losing pointer masks in NIST reductions;
+HTTPS curl and NIST modulus correctness tests pass. Its constant-time
+properties are not independently reviewed, and OpenSSL 1.1.1w is EOL.
+The EOL PHP CVE/multipart backports apply; the tracked Fil-C allocator
+enforces `memory_limit` and reports usage across repeated requests.
+The build omits bz2 until a Fil-C-built libbz2 is available.
 
-**7.3 and 7.2 are unpublished and incomplete.** Local CLI, FPM and Apache
-images run with mbstring, XML, session, SQLite and MySQL drivers, and HTTP
-curl. Both have EOL CVE and multipart-limit backports applied, but HTTPS
-curl panics in OpenSSL 1.1.1w's `BN_nist_mod_384`. The Fil-C system
-allocator bypasses PHP's `memory_limit`: with a 1 MiB limit, an 8 MiB
-string allocates and `memory_get_usage()` returns 0. Do not process
-untrusted requests or publish these images.
+**7.3 and 7.2 remain unpublished.** Local CLI/FPM/Apache images and
+WordPress 6.9.10 installation and admin login work with MariaDB. Fil-C
+OpenSSL 1.1.1w passes HTTPS curl smoke tests; tracked allocations enforce
+`memory_limit`
+and report nonzero usage. EOL PHP CVE/multipart backports apply, but the
+legacy OpenSSL port and security regression testing require review.
+Do not expose these experimental images to untrusted requests.
 
-**5.6 is also unpublished and incomplete.** Local Fil-C-built CLI, FPM,
-and Apache images run with OpenSSL 1.0.2u; Apache serves `/index.php`.
-This is a `--disable-all` build with selected extensions (OpenSSL, zlib,
-mbstring, sockets, curl, libxml/DOM/SimpleXML, SQLite and MySQL drivers),
-not a WordPress image: session is disabled, and the bundled WordPress 6.7
-requires a newer PHP. HTTPS curl panics in OpenSSL 1.0.2u's `BN_nist_mod_256`.
-The system-allocator workaround bypasses `memory_limit` here too. The EOL
-CVE backport and multipart part limit are applied, but session remains
-absent and security regression testing is incomplete. Do not use it to
-process untrusted requests.
+**5.6 remains unpublished.** A selected-extension `--disable-all` image
+runs WordPress 6.2.14 with MariaDB locally, including installation and
+serving a page and authenticated admin dashboard. Session is enabled
+with upload progress disabled, and tracked Fil-C allocations enforce
+`memory_limit`. The PHP CVE/multipart
+backports apply and patched OpenSSL 1.0.2u passes HTTPS smoke tests.
+OpenSSL 1.0.2u is long EOL; the NIST timing behavior and unbackported
+security issues need review. Do not process untrusted requests with it.
+PCRE JIT is disabled in runtime images because Fil-C cannot allocate
+executable JIT memory; otherwise WordPress login can emit warnings before
+setting authentication cookies.
 
 ## Images
 
@@ -102,42 +102,51 @@ docker run --rm ghcr.io/hjanuschka/php-fil-c:8.4-cli-bookworm -v
 docker run -d -p 127.0.0.1:9000:9000 ghcr.io/hjanuschka/php-fil-c:8.4-fpm-bookworm
 # Apache + mod_php (port 8080) -- Apache itself is built with Fil-C
 docker run -d -p 127.0.0.1:8080:8080 ghcr.io/hjanuschka/php-fil-c:8.4-apache-bookworm
-# WordPress drop-in (needs a MySQL/MariaDB; env contract matches the official image)
+# WordPress (needs MariaDB; env contract matches the official image)
 docker run -d -p 127.0.0.1:8080:8080 \
-  -e WORDPRESS_DB_HOST=db -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD=wp -e WORDPRESS_DB_NAME=wp \
+  -e WORDPRESS_DB_HOST=db -e WORDPRESS_DB_USER=wp \
+  -e WORDPRESS_DB_PASSWORD="$WP_DB_PASSWORD" -e WORDPRESS_DB_NAME=wp \
   ghcr.io/hjanuschka/php-fil-c:8.4-wordpress-bookworm
 ```
 
 The Apache image runs the **whole process on Fil-C**: APR, APR-util, httpd and
 mod_php are all compiled with `filcc`, so there is no native/Fil-C libc mixing.
-The WordPress image is a drop-in for the official `wordpress` image (same
-`WORDPRESS_DB_*` env contract, wp-cli included, auto-installs on first boot).
+The WordPress image uses the official `WORDPRESS_DB_*` environment contract.
+It requires `WORDPRESS_DB_PASSWORD`, generates `wp-config.php` with random
+salts, then leaves site installation to the administrator. It never creates
+a default admin account; WP-CLI is not bundled. Keep the installer private
+until the administrator finishes setup, since anyone who can reach it first
+could choose the admin credentials.
 
-### WordPress + MySQL (drop-in demo)
+### WordPress + MariaDB
 
 ```yaml
 # docker-compose.yml
 services:
   db:
-    image: mysql:8
+    image: mariadb:11.4
     environment:
-      MYSQL_DATABASE: wordpress
-      MYSQL_USER: wp
-      MYSQL_PASSWORD: wp
-      MYSQL_ROOT_PASSWORD: root
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wp
+      MARIADB_PASSWORD: ${WP_DB_PASSWORD:?Set WP_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${WP_ROOT_PASSWORD:?Set WP_ROOT_PASSWORD}
   wordpress:
     image: ghcr.io/hjanuschka/php-fil-c:8.4-wordpress-bookworm
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
     environment:
       WORDPRESS_DB_HOST: db
       WORDPRESS_DB_USER: wp
-      WORDPRESS_DB_PASSWORD: wp
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD:?Set WP_DB_PASSWORD}
       WORDPRESS_DB_NAME: wordpress
     depends_on: [db]
 ```
 
-Only PHP runs under Fil-C; the database server is a normal MySQL/MariaDB
-reached over TCP -- exactly how a real LAMP split works.
+Open `http://localhost:8080` to complete the WordPress installer and choose
+a unique admin password. Do not expose an uninstalled site to the public.
+
+Only PHP runs under Fil-C; MariaDB runs in its own container over TCP.
+PHP 7.2's mysqlnd cannot authenticate with MySQL 8.4's default
+`caching_sha2_password`, so the older images use MariaDB here.
 
 ## Build from source
 
@@ -210,7 +219,7 @@ the mitigation recommended in GHSA-6wmf-4rv5-p3rp for CVE-2026-109619.
 versions.json            build matrix: version -> tarball sha256 + patch + status
 patches/                 Fil-C port patch per PHP version
 docker/Dockerfile        multi-stage build: deps -> php -> cli/fpm/apache/wordpress
-docker/wordpress/        WordPress entrypoint (env -> wp-config, auto-install)
+docker/wordpress/        WordPress entrypoint (env -> wp-config)
 build.sh                 standalone host build + smoke test
 .github/workflows/       build-and-publish (GHCR matrix)
 PLAN.md                  roadmap: adopt Filnix patches, JIT, per-version branches

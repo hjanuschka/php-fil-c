@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for the build matrix. Each entry pins the exact php.net tarball (sha256) and the Fil-C patch that applies to it. Add a version: drop patches/php-<ver>-filc.patch, add an entry, bump. status: supported = builds+smoke-tests; port = patch needs manual hunks; unsupported = Fil-C port does not exist for this line.",
+  "_comment": "Single source of truth for the build matrix. Each entry pins the exact php.net tarball (sha256) and the Fil-C patch that applies to it. Add a version: drop patches/php-<ver>-filc.patch, add an entry, bump. status: supported = verified and eligible for CI publication; pending = experimental, never publish.",
   "filc_version": "0.686",
   "default": "8.4.27",
   "versions": [
@@ -8,28 +8,36 @@
       "sha256": "08bc2eba2a588654ade1357174aa646b761556c862dda0678345ee29ed481209",
       "patch": "php-8.5.12-filc.patch",
       "series": "8.5",
-      "status": "supported"
+      "status": "supported",
+      "wordpress_version": "7.1.3",
+      "wordpress_sha256": "d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5"
     },
     {
       "version": "8.4.27",
       "sha256": "dcf93923b0e38e0d5252b25b796520b5a47761a08b3488b6d0b5d1115764d3f0",
       "patch": "php-8.4.27-filc.patch",
       "series": "8.4",
-      "status": "supported"
+      "status": "supported",
+      "wordpress_version": "7.1.3",
+      "wordpress_sha256": "d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5"
     },
     {
       "version": "8.3.36",
       "sha256": "dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd",
       "patch": "php-8.3.36-filc.patch",
       "series": "8.3",
-      "status": "supported"
+      "status": "supported",
+      "wordpress_version": "7.1.3",
+      "wordpress_sha256": "d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5"
     },
     {
       "version": "8.2.35",
       "sha256": "5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6",
       "patch": "php-8.2.35-filc.patch",
       "series": "8.2",
-      "status": "supported"
+      "status": "supported",
+      "wordpress_version": "7.1.3",
+      "wordpress_sha256": "d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5"
     },
     {
       "series": "8.1",
@@ -37,7 +45,9 @@
       "sha256": "c582ac682a280bbc69bc2186c21eb7e3313cc73099be61a6bc1d2cd337cbf383",
       "patch": "php-8.1.32-filc.patch",
       "status": "supported",
-      "note": "Fil-C build verified; CVE-2026-109618/109619 backported from deb.sury.org EOL patch"
+      "note": "Fil-C build verified; CVE-2026-109618/109619 backported from deb.sury.org EOL patch",
+      "wordpress_version": "7.1.3",
+      "wordpress_sha256": "d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5"
     },
     {
       "series": "8.0",
@@ -45,7 +55,9 @@
       "sha256": "216ab305737a5d392107112d618a755dc5df42058226f1670e9db90e77d777d9",
       "patch": "php-8.0.30-filc.patch",
       "status": "supported",
-      "note": "Fil-C build verified; CVE-2026-109618/109619 backported from deb.sury.org EOL patch"
+      "note": "Fil-C build verified; CVE-2026-109618/109619 backported from deb.sury.org EOL patch",
+      "wordpress_version": "7.1.3",
+      "wordpress_sha256": "d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5"
     },
     {
       "series": "7.4",
@@ -53,7 +65,9 @@
       "sha256": "924846abf93bc613815c55dd3f5809377813ac62a9ec4eb3778675b82a27b927",
       "patch": "php-7.4.33-filc.patch",
       "status": "pending",
-      "note": "CLI/FPM/Apache build and run locally with CVE backport and tracked memory_limit accounting, but HTTPS panics in OpenSSL 1.1.1w BN_nist_mod_384; do not publish"
+      "note": "Experimental WordPress 7.1.3 installs locally with CVE backport and memory_limit; Fil-C OpenSSL 1.1.1w HTTPS works but EOL TLS security and constant-time review block publication",
+      "wordpress_version": "7.1.3",
+      "wordpress_sha256": "d2a09acb6a15e3b9c471d72557753c266d6f41a79ed19bfe04cbfe49e283b2a5"
     },
     {
       "series": "7.3",
@@ -61,7 +75,9 @@
       "sha256": "166eaccde933381da9516a2b70ad0f447d7cec4b603d07b9a916032b215b90cc",
       "patch": "php-7.3.33-filc.patch",
       "status": "pending",
-      "note": "Local CLI/FPM/Apache and extensions with CVE backport work, but HTTPS panics in OpenSSL 1.1.1w; Fil-C system allocator bypasses memory_limit; do not publish"
+      "note": "Experimental WordPress 6.9.10 installs locally with CVE backport and memory_limit; Fil-C OpenSSL 1.1.1w HTTPS works but EOL TLS security and constant-time review block publication",
+      "wordpress_version": "6.9.10",
+      "wordpress_sha256": "a1c0dc12e2271c6afaabf329d5af7a976f8d2c8c592773178a5baaeafc2d4f4a"
     },
     {
       "series": "7.2",
@@ -69,7 +85,9 @@
       "sha256": "409e11bc6a2c18707dfc44bc61c820ddfd81e17481470f3405ee7822d8379903",
       "patch": "php-7.2.34-filc.patch",
       "status": "pending",
-      "note": "Experimental CLI/FPM/Apache and extensions with CVE backport work; HTTPS panics in OpenSSL 1.1.1w, memory_limit bypassed; do not publish"
+      "note": "Experimental WordPress 6.9.10 installs locally with CVE backport and memory_limit; Fil-C OpenSSL 1.1.1w HTTPS works but EOL TLS security and constant-time review block publication",
+      "wordpress_version": "6.9.10",
+      "wordpress_sha256": "a1c0dc12e2271c6afaabf329d5af7a976f8d2c8c592773178a5baaeafc2d4f4a"
     },
     {
       "series": "5.6",
@@ -77,7 +95,9 @@
       "sha256": "1369a51eee3995d7fbd1c5342e5cc917760e276d561595b6052b21ace2656d1c",
       "patch": "php-5.6.40-filc.patch",
       "status": "pending",
-      "note": "Experimental CLI/FPM/Apache with selected extensions and CVE backport; HTTPS panics in OpenSSL 1.0.2u, memory_limit bypassed, session disabled; do not publish"
+      "note": "Experimental WordPress 6.2.14 installs locally with CVE backport, session and memory_limit; Fil-C OpenSSL 1.0.2u HTTPS works but EOL TLS security and constant-time review block publication",
+      "wordpress_version": "6.2.14",
+      "wordpress_sha256": "79a30f6f2c86bed17209fc5a9da105d996623e701b5cce8ae1fddfe03d72779b"
     }
   ]
 }

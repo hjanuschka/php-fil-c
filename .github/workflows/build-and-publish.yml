@@ -1,10 +1,5 @@
 name: build-and-publish
 
-# Builds Fil-C PHP images for every version in versions.json and publishes
-# cli / fpm / apache / wordpress variants to GHCR. Triggered manually, on a
-# `v*` tag, or on push to main. To ship a new PHP CVE fix: bump versions.json
-# (version + sha256), drop the Fil-C patch, push.
-
 on:
   workflow_dispatch:
     inputs:
@@ -48,7 +43,9 @@ jobs:
               if only and v['version'] != only:
                   continue
               for sapi in ('cli', 'fpm', 'apache', 'wordpress'):
-                  rows.append({'version': v['version'], 'series': v['series'], 'sapi': sapi})
+                  rows.append({'version': v['version'], 'series': v['series'], 'sapi': sapi,
+                               'wordpress_version': v['wordpress_version'],
+                               'wordpress_sha256': v['wordpress_sha256']})
           print('include=' + json.dumps(rows))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write('include=' + json.dumps(rows) + '\n')
@@ -75,7 +72,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build locally
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -84,24 +81,59 @@ jobs:
           build-args: |
             PHP_VERSION=${{ matrix.version }}
             FILC_VERSION=${{ env.FILC_VERSION }}
-          push: true
+            WORDPRESS_VERSION=${{ matrix.wordpress_version }}
+            WORDPRESS_SHA256=${{ matrix.wordpress_sha256 }}
+          load: true
+          push: false
           cache-from: type=gha,scope=${{ matrix.series }}
           cache-to: type=gha,scope=${{ matrix.series }},mode=max
           tags: |
             ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm
             ${{ env.IMAGE }}:${{ matrix.series }}-${{ matrix.sapi }}-bookworm
-            ${{ env.IMAGE }}:${{ matrix.sapi }}-bookworm
 
       - name: Smoke test
         run: |
-          docker pull ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm
           case "${{ matrix.sapi }}" in
             cli)
               docker run --rm --entrypoint php ${{ env.IMAGE }}:${{ matrix.version }}-cli-bookworm \
                 -r 'echo PHP_VERSION, " ok upload_progress=", (ini_get("session.upload_progress.enabled") ? "ON" : "0"), "\n";' ;;
             fpm)
-              docker run --rm --entrypoint /usr/local/sbin/php-fpm ${{ env.IMAGE }}:${{ matrix.version }}-fpm-bookworm \
-                -t -y /usr/local/etc/php-fpm.conf ;;
-            apache|wordpress)
-              docker run --rm --entrypoint /opt/fil/apache/bin/httpd ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm -v ;;
+              workspace=$(mktemp -d -p /var/tmp filc-fpm-XXXXXX)
+              name=filc-fpm-smoke
+              trap 'docker rm -f "$name" >/dev/null 2>&1 || :; rm -rf "$workspace"' EXIT
+              printf '<?php echo "filc-fpm-ok ", PHP_VERSION;\n' > "$workspace/index.php"
+              docker run -d --rm --name "$name" -p 127.0.0.1::9000 \
+                -v "$workspace/index.php:/var/www/html/index.php:ro" \
+                ${{ env.IMAGE }}:${{ matrix.version }}-fpm-bookworm
+              port=$(docker port "$name" 9000/tcp | sed -n 's/.*://p')
+              python3 tests/fpm-smoke.py "$port" '${{ matrix.version }}'
+              ;;
+            apache)
+              name=filc-apache-smoke
+              trap 'docker rm -f "$name" >/dev/null 2>&1 || :' EXIT
+              docker run -d --rm --name "$name" -p 127.0.0.1::8080 \
+                ${{ env.IMAGE }}:${{ matrix.version }}-apache-bookworm
+              port=$(docker port "$name" 8080/tcp | sed -n 's/.*://p')
+              for i in $(seq 1 20); do
+                if curl --max-time 10 -fsS "http://127.0.0.1:$port/index.php" | grep -q 'php-fil-c ok: ${{ matrix.version }} on apache2handler'; then
+                  exit 0
+                fi
+                sleep 1
+              done
+              exit 1 ;;
+            wordpress)
+              bash tests/wordpress-smoke.sh ${{ env.IMAGE }}:${{ matrix.version }}-wordpress-bookworm ${{ matrix.wordpress_version }} ;;
           esac
+
+      - name: Security smoke test
+        run: bash tests/security-smoke.sh ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm
+
+      - name: Push verified image
+        run: |
+          docker push ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm
+          docker push ${{ env.IMAGE }}:${{ matrix.series }}-${{ matrix.sapi }}-bookworm
+          default=$(python3 -c 'import json; print(json.load(open("versions.json"))["default"])')
+          if [ '${{ matrix.version }}' = "$default" ]; then
+            docker tag ${{ env.IMAGE }}:${{ matrix.version }}-${{ matrix.sapi }}-bookworm ${{ env.IMAGE }}:${{ matrix.sapi }}-bookworm
+            docker push ${{ env.IMAGE }}:${{ matrix.sapi }}-bookworm
+          fi

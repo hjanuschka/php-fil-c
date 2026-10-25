@@ -273,7 +273,7 @@ have dodged, now that we stay on bookworm):
   system include flags after configure; `-D_DEFAULT_SOURCE` alone does not
   solve this.
 
-### Bookworm 7.4 checkpoint (2026-10-24)
+### Historical Bookworm 7.4 checkpoint (2026-10-24)
 
 - Fil-C builds OpenSSL 1.1.1w shared libraries and OpenSSL 1.0.2u's
   `build_libs`. OpenSSL 1.0.2u links and runs a Fil-C digest program and
@@ -303,7 +303,7 @@ have dodged, now that we stay on bookworm):
   cannot satisfy Fil-C's symbol rewriting.
   Other PHP 5.x CVE backports remain pending.
 
-### Bookworm 7.2 checkpoint (2026-10-25)
+### Historical Bookworm 7.2 checkpoint (2026-10-25)
 
 - PHP 7.2.34's Fil-C port and the EOL CVE backport plus `ZSTR_MAX_LEN`
   and `max_multipart_body_parts` prerequisites compile from the repository
@@ -315,7 +315,7 @@ have dodged, now that we stay on bookworm):
   `BN_nist_mod_384`, and `memory_limit=1M` allows an 8 MiB string while
   `memory_get_usage()` stays at zero.
 
-### Bookworm 7.3 checkpoint (2026-10-25)
+### Historical Bookworm 7.3 checkpoint (2026-10-25)
 
 - PHP 7.3.33 builds with Fil-C on bookworm using OpenSSL 1.1.1w and the
   tracked `patches/php-7.3.33-filc.patch`. CLI, FPM and Apache start locally;
@@ -328,7 +328,7 @@ have dodged, now that we stay on bookworm):
   `memory_get_usage()`. `memory_limit=1M` allows an 8 MiB string. The backport
   needs regression tests with a working memory limit before claiming security.
 
-### Bookworm 5.6 checkpoint (2026-10-25)
+### Historical Bookworm 5.6 checkpoint (2026-10-25)
 
 - PHP 5.6.40 builds with Fil-C on bookworm using OpenSSL 1.0.2u and the
   initial `patches/php-5.6.40-filc.patch`. Local CLI, FPM and Apache images
@@ -357,3 +357,28 @@ have dodged, now that we stay on bookworm):
 - **Do not publish 5.6:** TLS traps in the Fil-C-built legacy OpenSSL,
   `memory_limit` is ineffective and session is disabled. The backport still
   needs security regression tests; older WordPress compatibility is unverified.
+
+### Current experimental legacy checkpoint (supersedes historical blockers)
+
+- PHP 7.4/7.3/7.2 and 5.6 have local CLI/FPM/Apache/WordPress builds.
+  WordPress 7.1.3/6.9.10/6.9.10/6.2.14 respectively installs through
+  the browser and serves a page over MariaDB 11.4. Authenticated admin
+  login passes on all four. PHP 7.2's mysqlnd cannot use MySQL 8.4's
+  default authentication method.
+- PHP CVE/multipart backports apply to pristine tarballs; `session`
+  is enabled in 5.6 with upload progress off. Tracked allocations enforce
+  `memory_limit` and report nonzero usage through repeated CLI/FPM/Apache
+  requests. The final 5.6/7.2/7.3 builds reject lowering a limit below
+  current usage and allow it after freeing memory, also verified on
+  the final 7.4 build.
+- Capability-preserving NIST ports of OpenSSL 1.0.2u/1.1.1w pass modular
+  arithmetic comparisons and HTTPS curl. These releases are EOL and the
+  timing/security properties of the changes remain unreviewed. This is
+  a publication blocker for all four legacy lines, irrespective of
+  functional success. None are marked supported or published.
+- Disable PCRE JIT in runtime images: Fil-C's executable-memory
+  restriction otherwise causes intermittent PHP warnings before WordPress
+  login cookies, breaking authentication. The WordPress entrypoint no
+  longer auto-installs a fixed admin account or writes a default DB
+  password. CI must test images before pushing;
+  unversioned tags are reserved for the designated default PHP version.

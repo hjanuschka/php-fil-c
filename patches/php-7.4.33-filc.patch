@@ -24,7 +24,7 @@
  			zend_hash_clean(heap->tracked_allocs);
  			if (full) {
  				zend_hash_destroy(heap->tracked_allocs);
-@@ -2730,32 +2737,97 @@
+@@ -2730,32 +2737,98 @@
  }
  
  #if ZEND_MM_CUSTOM
@@ -33,7 +33,8 @@
 +{
 +#if ZEND_MM_LIMIT
 +	zend_mm_heap *heap = AG(mm_heap);
-+	if (new_size > heap->limit - (heap->real_size - previous_size)) {
++	size_t used = heap->real_size - previous_size;
++	if (used > heap->limit || new_size > heap->limit - used) {
 +		zend_mm_safe_error_ex("Allowed memory size of %zu bytes exhausted (tried to allocate %zu bytes)", heap->limit, new_size);
 +	}
 +#endif
@@ -122,7 +123,7 @@
  	HashTable *tracked_allocs = AG(mm_heap)->tracked_allocs;
  	zend_ulong h;
  	ZEND_HASH_FOREACH_NUM_KEY(tracked_allocs, h) {
-@@ -2771,11 +2843,19 @@
+@@ -2771,11 +2844,19 @@
  
  #if ZEND_MM_CUSTOM
  	tmp = getenv("USE_ZEND_ALLOC");
@@ -142,7 +143,7 @@
  		if (!tracked) {
  			/* Use system allocator. */
  			mm_heap->custom_heap.std._malloc = __zend_malloc;
-@@ -3039,3 +3119,4 @@
+@@ -3039,3 +3120,4 @@
  	return sizeof(zend_alloc_globals);
  }
  #endif
