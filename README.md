@@ -67,7 +67,8 @@ selection loses its capability. No 7.4 image is published; fixing this
 without regressing cryptographic timing behavior is required first. The
 7.4 build also omits bz2 until a Fil-C-built libbz2 is available. Its EOL
 CVE and multipart-limit backports are applied, but security testing is
-incomplete. Its system allocator also bypasses PHP's `memory_limit`.
+incomplete. Its tracked Fil-C allocator enforces `memory_limit` and reports
+nonzero usage and peak usage in local CLI, FPM and Apache tests.
 
 **7.3 and 7.2 are unpublished and incomplete.** Local CLI, FPM and Apache
 images run with mbstring, XML, session, SQLite and MySQL drivers, and HTTP

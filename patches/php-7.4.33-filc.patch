@@ -1,30 +1,132 @@
 --- a/Zend/zend_alloc.c
 +++ b/Zend/zend_alloc.c
-@@ -2728,6 +2728,12 @@
+@@ -59,6 +59,9 @@
+ #include "zend_bitset.h"
+ #include "zend_execute.h"
+ #include <signal.h>
++#ifdef __FILC__
++# include <malloc.h>
++#endif
+ 
+ #ifdef HAVE_UNISTD_H
+ # include <unistd.h>
+@@ -2239,9 +2242,13 @@
+ #if ZEND_MM_CUSTOM
+ 	if (heap->use_custom_heap) {
+ 		if (heap->custom_heap.std._malloc == tracked_malloc) {
++#ifdef __FILC__
++			tracked_free_all();
++#else
+ 			if (silent) {
+ 				tracked_free_all();
+ 			}
++#endif
+ 			zend_hash_clean(heap->tracked_allocs);
+ 			if (full) {
+ 				zend_hash_destroy(heap->tracked_allocs);
+@@ -2730,32 +2737,97 @@
+ }
+ 
+ #if ZEND_MM_CUSTOM
++#ifdef __FILC__
++static void tracked_check_limit(size_t previous_size, size_t new_size)
++{
++#if ZEND_MM_LIMIT
++	zend_mm_heap *heap = AG(mm_heap);
++	if (new_size > heap->limit - (heap->real_size - previous_size)) {
++		zend_mm_safe_error_ex("Allowed memory size of %zu bytes exhausted (tried to allocate %zu bytes)", heap->limit, new_size);
++	}
++#endif
++}
++
++static void tracked_update_usage(size_t previous_size, size_t new_size)
++{
++#if ZEND_MM_STAT
++	zend_mm_heap *heap = AG(mm_heap);
++	heap->size = heap->size - previous_size + new_size;
++	heap->real_size = heap->real_size - previous_size + new_size;
++	heap->peak = MAX(heap->peak, heap->size);
++	heap->real_peak = MAX(heap->real_peak, heap->real_size);
++#endif
++}
++#endif
++
+ static void *tracked_malloc(size_t size)
+ {
++#ifdef __FILC__
++	void *ptr;
++	zend_ulong h;
++	tracked_check_limit(0, size);
++	ptr = __zend_malloc(size);
++	tracked_check_limit(0, malloc_usable_size(ptr));
++	h = ((uintptr_t)ptr) >> ZEND_MM_ALIGNMENT_LOG2;
++	zend_hash_index_add_ptr(AG(mm_heap)->tracked_allocs, h, ptr);
++	tracked_update_usage(0, malloc_usable_size(ptr));
++	return ptr;
++#else
+ 	void *ptr = __zend_malloc(size);
+ 	zend_ulong h = ((uintptr_t) ptr) >> ZEND_MM_ALIGNMENT_LOG2;
+ 	ZEND_ASSERT((void *) (uintptr_t) (h << ZEND_MM_ALIGNMENT_LOG2) == ptr);
+ 	zend_hash_index_add_empty_element(AG(mm_heap)->tracked_allocs, h);
+ 	return ptr;
++#endif
+ }
+ 
+ static void tracked_free(void *ptr) {
+ 	zend_ulong h = ((uintptr_t) ptr) >> ZEND_MM_ALIGNMENT_LOG2;
++#ifdef __FILC__
++	tracked_update_usage(malloc_usable_size(ptr), 0);
++#endif
+ 	zend_hash_index_del(AG(mm_heap)->tracked_allocs, h);
+ 	free(ptr);
+ }
+ 
+ static void *tracked_realloc(void *ptr, size_t new_size) {
+ 	zend_ulong h = ((uintptr_t) ptr) >> ZEND_MM_ALIGNMENT_LOG2;
++#ifdef __FILC__
++	size_t previous_size = ptr ? malloc_usable_size(ptr) : 0;
++	if (!ptr) {
++		return tracked_malloc(new_size);
++	}
++	tracked_check_limit(previous_size, new_size);
++#endif
+ 	zend_hash_index_del(AG(mm_heap)->tracked_allocs, h);
+ 	ptr = __zend_realloc(ptr, new_size);
++#ifdef __FILC__
++	if (ptr) {
++		tracked_check_limit(previous_size, malloc_usable_size(ptr));
++		h = ((uintptr_t) ptr) >> ZEND_MM_ALIGNMENT_LOG2;
++		zend_hash_index_add_ptr(AG(mm_heap)->tracked_allocs, h, ptr);
++	}
++	tracked_update_usage(previous_size, ptr ? malloc_usable_size(ptr) : 0);
++#else
+ 	h = ((uintptr_t) ptr) >> ZEND_MM_ALIGNMENT_LOG2;
+ 	ZEND_ASSERT((void *) (uintptr_t) (h << ZEND_MM_ALIGNMENT_LOG2) == ptr);
+ 	zend_hash_index_add_empty_element(AG(mm_heap)->tracked_allocs, h);
++#endif
+ 	return ptr;
  }
  
  static void tracked_free_all() {
 +#ifdef __FILC__
-+	/* The keys are addresses, and an integer cast back to a pointer has no
-+	 * capability, so free() would trap. Fil-C's collector reclaims the
-+	 * request's leftover allocations once nothing refers to them. */
++	zval *value;
++	ZEND_HASH_FOREACH_VAL(AG(mm_heap)->tracked_allocs, value) {
++		free(Z_PTR_P(value));
++	} ZEND_HASH_FOREACH_END();
++	AG(mm_heap)->size = 0;
++	AG(mm_heap)->real_size = 0;
++	AG(mm_heap)->peak = 0;
++	AG(mm_heap)->real_peak = 0;
 +	return;
 +#endif
  	HashTable *tracked_allocs = AG(mm_heap)->tracked_allocs;
  	zend_ulong h;
  	ZEND_HASH_FOREACH_NUM_KEY(tracked_allocs, h) {
-@@ -2743,14 +2749,37 @@
+@@ -2771,11 +2843,19 @@
  
  #if ZEND_MM_CUSTOM
  	tmp = getenv("USE_ZEND_ALLOC");
 +#ifdef __FILC__
-+	/* Zend's allocator carves request memory out of 2 MiB chunks, so Fil-C
-+	 * bounds every PHP value only by its chunk and a freed value's memory is
-+	 * reused inside it: use after free and overflows between values go
-+	 * undetected. Default to the system allocator, which gives each value
-+	 * its own capability, tracked so that memory_limit and
-+	 * memory_get_usage() still work. USE_ZEND_ALLOC=1 selects Zend's
-+	 * allocator and USE_TRACKED_ALLOC=0 untracked malloc. */
 +	if (!tmp || !zend_atoi(tmp, 0)) {
 +		zend_bool tracked = !(tmp = getenv("USE_TRACKED_ALLOC")) || zend_atoi(tmp, 0);
 +#else
@@ -34,24 +136,13 @@
  		zend_mm_heap *mm_heap = alloc_globals->mm_heap = malloc(sizeof(zend_mm_heap));
  		memset(mm_heap, 0, sizeof(zend_mm_heap));
  		mm_heap->use_custom_heap = ZEND_MM_CUSTOM_HEAP_STD;
++#ifdef __FILC__
++		mm_heap->limit = (Z_L(-1) >> Z_L(1));
++#endif
  		if (!tracked) {
  			/* Use system allocator. */
  			mm_heap->custom_heap.std._malloc = __zend_malloc;
-+#if defined(__FILC__) && ZEND_MM_STAT
-+/* PHP's tracked allocator never recorded peaks, so memory_get_peak_usage()
-+ * reported 0; it is the default here, and monitoring code reads it. */
-+# define TRACKED_PEAK(heap) do { \
-+		if ((heap)->size > (heap)->peak) (heap)->peak = (heap)->size; \
-+		if ((heap)->real_size > (heap)->real_peak) (heap)->real_peak = (heap)->real_size; \
-+	} while (0)
-+#else
-+# define TRACKED_PEAK(heap) do { } while (0)
-+#endif
-+
- 			mm_heap->custom_heap.std._free = free;
- 			mm_heap->custom_heap.std._realloc = __zend_realloc;
- 		} else {
-@@ -3011,3 +3040,4 @@
+@@ -3039,3 +3119,4 @@
  	return sizeof(zend_alloc_globals);
  }
  #endif

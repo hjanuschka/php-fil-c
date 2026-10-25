@@ -296,8 +296,11 @@ have dodged, now that we stay on bookworm):
   OpenSSL 1.1.1. The constant-time pointer-mask selection loses Fil-C's
   capability. A naive branch-based replacement may introduce crypto timing
   side channels, so the correct solution still needs design and TLS tests.
-  The system allocator bypasses `memory_limit` here as well. bz2 is omitted:
-  system libbz2 cannot satisfy Fil-C's symbol rewriting.
+  The Fil-C tracked system allocator enforces `memory_limit` and reports
+  per-request memory usage and peaks in CLI, FPM and Apache tests. An OOM
+  exits the worker through Zend's safe fatal-error path; TLS and broader
+  security regression testing remain. bz2 is omitted because system libbz2
+  cannot satisfy Fil-C's symbol rewriting.
   Other PHP 5.x CVE backports remain pending.
 
 ### Bookworm 7.2 checkpoint (2026-10-25)
