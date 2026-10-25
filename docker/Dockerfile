@@ -111,7 +111,7 @@ RUN set -eux; \
       curl -fL "$SSL_URL" -o /tmp/ssl.tgz; mkdir -p /tmp/ssl && tar -xf /tmp/ssl.tgz -C /tmp/ssl; \
       ( cd "/tmp/ssl/openssl-${SSL_VER}" && CC=/opt/fil/bin/filcc ./Configure linux-x86_64 no-asm shared --prefix=/opt/fil --libdir=lib >/dev/null && sed -i -E 's/-Wl,--version-script=lib(crypto|ssl)\.map//g' Makefile && make -j"$(nproc)" build_libs >/dev/null && mkdir -p /opt/fil/lib /opt/fil/include && cp -a libssl.so* libcrypto.so* /opt/fil/lib/ && rm -rf /opt/fil/include/openssl && cp -aL include/openssl /opt/fil/include/ ); \
       printf 'prefix=/opt/fil\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: OpenSSL\nDescription: OpenSSL (Fil-C)\nVersion: %s\nLibs: -L${libdir} -lssl -lcrypto\nCflags: -I${includedir}\n' "$SSL_VER" > /opt/fil/lib/pkgconfig/openssl.pc; \
-      if [ "${PHP_VERSION#7.}" != "${PHP_VERSION}" ]; then \
+      if [ "${PHP_VERSION#7.4.}" != "${PHP_VERSION}" ]; then \
         ( cd "/tmp/onig-${ONIG_VER}" && patch -p1 --silent -i /build/patches/oniguruma-6.9.9-filc.patch && make -j"$(nproc)" >/dev/null && make install >/dev/null ); \
       fi; \
       curl -fL --retry 5 "https://curl.se/download/curl-8.11.1.tar.xz" -o /tmp/curl.tar.xz; \
@@ -126,16 +126,19 @@ RUN set -eux; \
       5.*|7.*) SSL_FLAGS="--with-openssl=/opt/fil"; EOL_FIXES="ac_cv_func_strlcpy=no"; BZ2_FLAG=""; EOL_CPPFLAGS="-I/opt/fil/include -D_DEFAULT_SOURCE" ;; \
       *) SSL_FLAGS="--with-openssl"; EOL_FIXES=""; BZ2_FLAG="--with-bz2"; EOL_CPPFLAGS="" ;; \
     esac; \
-    if [ "${PHP_VERSION#5.}" != "${PHP_VERSION}" ]; then \
-      CPPFLAGS="${EOL_CPPFLAGS}" ./configure --prefix=/opt/php-filc \
-        --disable-all --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
-        --disable-cgi --without-pear --with-openssl=/opt/fil --with-zlib \
-        --enable-mbstring --enable-pdo --with-mysqli=mysqlnd \
-        --with-pdo-mysql=mysqlnd --enable-sockets --with-curl=/opt/fil \
-        --enable-libxml --with-libxml-dir=/opt/fil --enable-dom --enable-xml \
-        --enable-simplexml --with-sqlite3=/opt/fil --with-pdo-sqlite=/opt/fil \
-        ac_cv_what_readdir_r=POSIX; \
-    else \
+    case "${PHP_VERSION}" in \
+      5.*|7.3.*) \
+        session_flag=""; case "${PHP_VERSION}" in 7.3.*) session_flag="--enable-session" ;; esac; \
+        CPPFLAGS="${EOL_CPPFLAGS}" ./configure --prefix=/opt/php-filc \
+          --disable-all --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
+          --disable-cgi --without-pear --with-openssl=/opt/fil --with-zlib \
+          --enable-mbstring --enable-pdo --with-mysqli=mysqlnd \
+          --with-pdo-mysql=mysqlnd --enable-sockets --with-curl=/opt/fil \
+          --enable-libxml --with-libxml-dir=/opt/fil --enable-dom --enable-xml \
+          --enable-simplexml --with-sqlite3=/opt/fil --with-pdo-sqlite=/opt/fil \
+          ${session_flag} ac_cv_what_readdir_r=POSIX; \
+        ;; \
+      *) \
     PKG_CONFIG_PATH=/opt/fil/lib/pkgconfig \
     PKG_CONFIG=/opt/fil/bin/pkg-config \
     CPPFLAGS="${EOL_CPPFLAGS}" CXXFLAGS="-std=c++17" LIBS="-lc++abi" \
@@ -150,7 +153,8 @@ RUN set -eux; \
       --enable-exif --enable-ftp --enable-shmop --enable-sysvsem --enable-pcntl \
       --with-libedit \
       ac_cv_have_decl_UFFDIO_WRITEPROTECT_MODE_WP=no ${EOL_FIXES}; \
-    fi; \
+        ;; \
+    esac; \
     case "${PHP_VERSION}" in 5.*|7.*) sed -i -e 's@ -I/usr/include @ @g' -e 's@ -I"/usr/include" @ @g' Makefile ;; esac; \
     make -j"$(nproc)"; \
     make install; \

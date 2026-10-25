@@ -248,8 +248,8 @@ Recommended path (instead of old-Debian base):
    1.1.1; for 5.6 it is OpenSSL 1.0.2. This keeps Fil-C's headers happy and only
    swaps the crypto lib. The libxml-2.9-with-filcc step already added for 8.0 is
    the same pattern.
-2. Verify the Fil-C port patch per series (7.4 and a 5.6 prototype now
-   build; 7.3/7.2 still need porting and runtime checks).
+2. Verify the Fil-C port patch per series (7.4, 7.3 and a 5.6 prototype now
+   build; 7.2 still needs porting and runtime checks).
 3. Apply the CVE backport (`patches/cve-backports/`) where it exists; for 5.x the
    ondrej PPA also carries "Avoid state corruption via bailout" — re-base its
    `main/rfc1867.c` hunks against the target tarball as done for 8.0/8.1/7.4.
@@ -295,7 +295,20 @@ have dodged, now that we stay on bookworm):
   capability. A naive branch-based replacement may introduce crypto timing
   side channels, so the correct solution still needs design and TLS tests.
   bz2 is omitted: system libbz2 cannot satisfy Fil-C's symbol rewriting.
-  7.3/7.2 and PHP 5.x CVE backports remain pending.
+  7.2 and PHP 5.x CVE backports remain pending.
+
+### Bookworm 7.3 checkpoint (2026-10-25)
+
+- PHP 7.3.33 builds with Fil-C on bookworm using OpenSSL 1.1.1w and the
+  tracked `patches/php-7.3.33-filc.patch`. CLI, FPM and Apache start locally;
+  CLI runs typed class arguments, mbstring, DOM, SQLite, and HTTP curl.
+- Its bundled Oniguruma must store hash-table pointers as pointers rather
+  than integers. The CVE-2026-109618/109619 backport from deb.sury.org
+  applies with its prerequisite `ZSTR_MAX_LEN` patch.
+- **Do not publish 7.3:** HTTPS curl traps in OpenSSL's `BN_nist_mod_384`,
+  and the system-allocator workaround bypasses PHP's `memory_limit` and
+  `memory_get_usage()`. `memory_limit=1M` allows an 8 MiB string. The backport
+  needs regression tests with a working memory limit before claiming security.
 
 ### Bookworm 5.6 checkpoint (2026-10-25)
 
@@ -308,6 +321,8 @@ have dodged, now that we stay on bookworm):
   SimpleXML, SQLite, and HTTP curl work. Session is disabled, and the default
   WordPress 6.7 requires a newer PHP. HTTPS curl panics inside OpenSSL 1.0.2u
   `BN_nist_mod_256`, the same pointer-mask issue as 7.4's OpenSSL 1.1.1.
+  The system-allocator workaround also bypasses `memory_limit` (8 MiB string
+  allowed with `memory_limit=1M`) and returns zero for `memory_get_usage()`.
   PHP 5.6's
   `php-fpm.conf.default` contains its `[www]` pool, unlike newer releases'
   `php-fpm.d/www.conf.default`; the runtime stage handles both layouts.

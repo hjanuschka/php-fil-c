@@ -1,0 +1,255 @@
+--- a/Zend/zend_alloc.c
++++ b/Zend/zend_alloc.c
+@@ -2708,7 +2708,11 @@
+ 
+ #if ZEND_MM_CUSTOM
+ 	tmp = getenv("USE_ZEND_ALLOC");
++#ifdef __FILC__
++	if (!tmp || !zend_atoi(tmp, 0)) {
++#else
+ 	if (tmp && !zend_atoi(tmp, 0)) {
++#endif
+ 		alloc_globals->mm_heap = malloc(sizeof(zend_mm_heap));
+ 		memset(alloc_globals->mm_heap, 0, sizeof(zend_mm_heap));
+ 		alloc_globals->mm_heap->use_custom_heap = ZEND_MM_CUSTOM_HEAP_STD;
+--- a/Zend/zend_multiply.h
++++ b/Zend/zend_multiply.h
+@@ -180,7 +180,7 @@
+ 	return res;
+ }
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__FILC__)
+ 
+ static zend_always_inline size_t zend_safe_address(size_t nmemb, size_t size, size_t offset, int *overflow)
+ {
+--- a/Zend/zend_operators.c
++++ b/Zend/zend_operators.c
+@@ -2664,7 +2664,7 @@
+ 			if (p != (const unsigned char*)source) {
+ 				memcpy(res, source, p - (const unsigned char*)source);
+ 			}
+-			r = (unsigned char*)p + (res - source);
++			r = (unsigned char*)res + (p - (const unsigned char*)source);
+ 			while (p < end) {
+ 				*r = zend_tolower_ascii(*p);
+ 				p++;
+@@ -2692,7 +2692,7 @@
+ 			if (p != (unsigned char*)ZSTR_VAL(str)) {
+ 				memcpy(ZSTR_VAL(res), ZSTR_VAL(str), p - (unsigned char*)ZSTR_VAL(str));
+ 			}
+-			r = p + (ZSTR_VAL(res) - ZSTR_VAL(str));
++			r = (unsigned char*)ZSTR_VAL(res) + (p - (unsigned char*)ZSTR_VAL(str));
+ 			while (p < end) {
+ 				*r = zend_tolower_ascii(*p);
+ 				p++;
+--- a/Zend/zend_operators.h
++++ b/Zend/zend_operators.h
+@@ -482,7 +482,7 @@
+ 	return;
+ overflow: ZEND_ATTRIBUTE_COLD_LABEL
+ 	ZVAL_DOUBLE(op1, (double)ZEND_LONG_MAX + 1.0);
+-#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__)
++#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__) && !defined(__FILC__)
+ 	__asm__ goto(
+ 		"addq $1,(%0)\n\t"
+ 		"jo  %l1\n"
+@@ -532,7 +532,7 @@
+ 	return;
+ overflow: ZEND_ATTRIBUTE_COLD_LABEL
+ 	ZVAL_DOUBLE(op1, (double)ZEND_LONG_MIN - 1.0);
+-#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__)
++#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__) && !defined(__FILC__)
+ 	__asm__ goto(
+ 		"subq $1,(%0)\n\t"
+ 		"jo  %l1\n"
+@@ -589,7 +589,7 @@
+ 	return;
+ overflow: ZEND_ATTRIBUTE_COLD_LABEL
+ 	ZVAL_DOUBLE(result, (double) Z_LVAL_P(op1) + (double) Z_LVAL_P(op2));
+-#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__)
++#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__) && !defined(__FILC__)
+ 	__asm__ goto(
+ 		"movq	(%1), %%rax\n\t"
+ 		"addq   (%2), %%rax\n\t"
+@@ -679,7 +679,7 @@
+ 	return;
+ overflow: ZEND_ATTRIBUTE_COLD_LABEL
+ 	ZVAL_DOUBLE(result, (double) Z_LVAL_P(op1) - (double) Z_LVAL_P(op2));
+-#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__)
++#elif defined(HAVE_ASM_GOTO) && defined(__x86_64__) && !defined(__FILC__)
+ 	__asm__ goto(
+ 		"movq	(%1), %%rax\n\t"
+ 		"subq   (%2), %%rax\n\t"
+--- a/Zend/zend_string.c
++++ b/Zend/zend_string.c
+@@ -406,7 +406,7 @@
+ }
+ #endif
+ 
+-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__)
++#elif defined(__GNUC__) && defined(__x86_64__) && !defined(__ILP32__) && !defined(__FILC__)
+ ZEND_API zend_bool ZEND_FASTCALL zend_string_equal_val(zend_string *s1, zend_string *s2)
+ {
+ 	char *ptr = ZSTR_VAL(s1);
+--- a/Zend/zend_string.h
++++ b/Zend/zend_string.h
+@@ -301,7 +301,7 @@
+ 	}
+ }
+ 
+-#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__)))
++#if defined(__GNUC__) && (defined(__i386__) || (defined(__x86_64__) && !defined(__ILP32__))) && !defined(__FILC__)
+ BEGIN_EXTERN_C()
+ ZEND_API zend_bool ZEND_FASTCALL zend_string_equal_val(zend_string *s1, zend_string *s2);
+ END_EXTERN_C()
+--- a/Zend/zend_types.h
++++ b/Zend/zend_types.h
+@@ -119,8 +119,23 @@
+  * construction.
+  */
+ 
++#ifdef __FILC__
++typedef char *zend_type;
++#else
+ typedef uintptr_t zend_type;
+-
++#endif
++
++#ifdef __FILC__
++#define ZEND_TYPE_IS_SET(t) ((uintptr_t)(t) > 1)
++#define ZEND_TYPE_IS_CODE(t) ((uintptr_t)(t) > 1 && (uintptr_t)(t) <= 0x1ff)
++#define ZEND_TYPE_IS_CLASS(t) ((uintptr_t)(t) > 0x1ff)
++#define ZEND_TYPE_NAME(t) ((zend_string*)((char*)(t) - ((uintptr_t)(t) & 0x3)))
++#define ZEND_TYPE_CE(t) ((zend_class_entry*)((char*)(t) - ((uintptr_t)(t) & 0x3)))
++#define ZEND_TYPE_CODE(t) ((uintptr_t)(t) >> 1)
++#define ZEND_TYPE_ALLOW_NULL(t) (((uintptr_t)(t) & 0x1) != 0)
++#define ZEND_TYPE_ENCODE(code, allow_null) ((zend_type)(uintptr_t)(((code) << 1) | ((allow_null) ? 1 : 0)))
++#define ZEND_TYPE_ENCODE_CLASS(class_name, allow_null) ((zend_type)((char*)(class_name) + ((allow_null) ? 1 : 0)))
++#else
+ #define ZEND_TYPE_IS_SET(t) \
+ 	((t) > Z_L(1))
+ 
+@@ -147,6 +162,8 @@
+ 
+ #define ZEND_TYPE_ENCODE_CLASS(class_name, allow_null) \
+ 	(((uintptr_t)(class_name)) | ((allow_null) ? Z_L(0x1) : Z_L(0)))
++
++#endif
+ 
+ #define ZEND_TYPE_ENCODE_CLASS_CONST_0(class_name) \
+ 	((zend_type) class_name)
+--- a/ext/libxml/libxml.c
++++ b/ext/libxml/libxml.c
+@@ -37,6 +37,8 @@
+ #include <libxml/parser.h>
+ #include <libxml/parserInternals.h>
+ #include <libxml/tree.h>
++#include <libxml/encoding.h>
++#include <libxml/xmlIO.h>
+ #include <libxml/uri.h>
+ #include <libxml/xmlerror.h>
+ #include <libxml/xmlsave.h>
+@@ -1003,7 +1005,7 @@
+ 			LIBXML(error_list) = NULL;
+ 		}
+ 	} else {
+-		xmlSetStructuredErrorFunc(NULL, php_libxml_structured_error_handler);
++		xmlSetStructuredErrorFunc(NULL, (xmlStructuredErrorFunc) php_libxml_structured_error_handler);
+ 		if (LIBXML(error_list) == NULL) {
+ 			LIBXML(error_list) = (zend_llist *) emalloc(sizeof(zend_llist));
+ 			zend_llist_init(LIBXML(error_list), sizeof(xmlError), (llist_dtor_func_t) _php_libxml_free_error, 0);
+--- a/ext/mbstring/oniguruma/src/regint.h
++++ b/ext/mbstring/oniguruma/src/regint.h
+@@ -1005,7 +1005,11 @@
+ # include <windows.h>
+ typedef ULONG_PTR hash_data_type;
+ #else
++#ifdef __FILC__
++typedef void *hash_data_type;
++#else
+ typedef unsigned long hash_data_type;
++#endif
+ #endif
+ 
+ extern hash_table_type* onig_st_init_strend_table_with_size P_((int size));
+--- a/ext/mbstring/oniguruma/src/st.c
++++ b/ext/mbstring/oniguruma/src/st.c
+@@ -35,8 +35,8 @@
+      *
+      */
+ 
+-static int numcmp(long, long);
+-static int numhash(long);
++static int numcmp(st_data_t, st_data_t);
++static int numhash(st_data_t);
+ static struct st_hash_type type_numhash = {
+     numcmp,
+     numhash,
+@@ -574,14 +574,14 @@
+ 
+ static int
+ numcmp(x, y)
+-     long x, y;
++     st_data_t x, y;
+ {
+   return x != y;
+ }
+ 
+ static int
+ numhash(n)
+-     long n;
+-{
+-  return n;
+-}
++     st_data_t n;
++{
++  return (int)(unsigned long)n;
++}
+--- a/ext/mbstring/oniguruma/src/st.h
++++ b/ext/mbstring/oniguruma/src/st.h
+@@ -10,7 +10,11 @@
+ # include <windows.h>
+ typedef ULONG_PTR st_data_t;
+ #else
++#ifdef __FILC__
++typedef void *st_data_t;
++#else
+ typedef unsigned long st_data_t;
++#endif
+ #endif
+ #define ST_DATA_T_DEFINED
+ 
+--- a/ext/openssl/openssl.c
++++ b/ext/openssl/openssl.c
+@@ -1488,7 +1488,9 @@
+ 	REGISTER_LONG_CONSTANT("PKCS7_NOSIGS", PKCS7_NOSIGS, CONST_CS|CONST_PERSISTENT);
+ 
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_PADDING", RSA_PKCS1_PADDING, CONST_CS|CONST_PERSISTENT);
+-	REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
++#ifdef RSA_SSLV23_PADDING
++	REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
++#endif
+ 	REGISTER_LONG_CONSTANT("OPENSSL_NO_PADDING", RSA_NO_PADDING, CONST_CS|CONST_PERSISTENT);
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_OAEP_PADDING", RSA_PKCS1_OAEP_PADDING, CONST_CS|CONST_PERSISTENT);
+ 
+--- a/ext/standard/string.c
++++ b/ext/standard/string.c
+@@ -1438,7 +1438,7 @@
+ 			if (c != (unsigned char*)ZSTR_VAL(s)) {
+ 				memcpy(ZSTR_VAL(res), ZSTR_VAL(s), c - (unsigned char*)ZSTR_VAL(s));
+ 			}
+-			r = c + (ZSTR_VAL(res) - ZSTR_VAL(s));
++			r = (unsigned char *)ZSTR_VAL(res) + (c - (unsigned char *)ZSTR_VAL(s));
+ 			while (c < e) {
+ 				*r = toupper(*c);
+ 				r++;
+@@ -1503,7 +1503,7 @@
+ 			if (c != (unsigned char*)ZSTR_VAL(s)) {
+ 				memcpy(ZSTR_VAL(res), ZSTR_VAL(s), c - (unsigned char*)ZSTR_VAL(s));
+ 			}
+-			r = c + (ZSTR_VAL(res) - ZSTR_VAL(s));
++			r = (unsigned char *)ZSTR_VAL(res) + (c - (unsigned char *)ZSTR_VAL(s));
+ 			while (c < e) {
+ 				*r = tolower(*c);
+ 				r++;
