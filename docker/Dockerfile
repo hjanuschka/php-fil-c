@@ -179,7 +179,7 @@ COPY --from=php /opt/fil/lib/ /opt/fil/lib/
 # survives the per-SAPI COPYs and matches the official images' conf.d pattern.
 # session.upload_progress.enabled=0 is the CVE-2026-109619 mitigation (GHSA-6wmf-4rv5-p3rp).
 ENV PHP_INI_SCAN_DIR=/usr/local/etc/php/conf.d
-RUN mkdir -p /usr/local/etc/php/conf.d && printf '[PHP]\nmemory_limit = 512M\nupload_max_filesize = 64M\npost_max_size = 64M\nmax_execution_time = 300\ndate.timezone = UTC\nexpose_php = Off\npcre.jit = 0\nsession.upload_progress.enabled = 0\n' > /usr/local/etc/php/conf.d/filc.ini
+RUN mkdir -p /usr/local/etc/php/conf.d && printf '[PHP]\nmemory_limit = 512M\nupload_max_filesize = 64M\npost_max_size = 64M\nmax_execution_time = 300\ndate.timezone = UTC\nexpose_php = Off\npcre.jit = 0\nopcache.enable = 0\nsession.upload_progress.enabled = 0\n' > /usr/local/etc/php/conf.d/filc.ini
 
 FROM runtime AS cli
 COPY --from=php /opt/php-filc/bin/php /usr/local/bin/php

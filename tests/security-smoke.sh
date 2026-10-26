@@ -9,7 +9,11 @@ if (ini_get("session.upload_progress.enabled") || ini_get("pcre.jit")) {
     fwrite(STDERR, "unsafe session upload progress or PCRE JIT setting\n");
     exit(1);
 }
-echo PHP_VERSION, " session upload progress and PCRE JIT off\n";
+if (extension_loaded("Zend OPcache") && ini_get("opcache.enable")) {
+    fwrite(STDERR, "OPcache is enabled; the Fil-C port panics in zend_persist\n");
+    exit(1);
+}
+echo PHP_VERSION, " session upload progress, PCRE JIT and OPcache off\n";
 '
 
 case "$("${php[@]}" -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')" in

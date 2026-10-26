@@ -202,8 +202,10 @@ port by Filip Pizlo, and informed by
 - **No JIT.** `--without-pcre-jit --disable-opcache-jit` -- Fil-C cannot
   execute generated machine code. A JIT-through-C path exists upstream
   ([PLAN.md](PLAN.md) P1).
-- **OPcache off by default.** The port panics when OPcache persists certain
-  classes; images ship `opcache.enable=0`.
+- **OPcache off.** The port panics when OPcache persists certain classes
+  (`zend_accel_pending_ce_cache_commit` writes through a null object).
+  Builds pass `--disable-opcache`, and since PHP 8.5 compiles OPcache
+  unconditionally, images also ship `opcache.enable=0`.
 - **Performance.** Capability checks + GC make PHP ~1.5-4x slower than native.
   This is a safety research build, not a production drop-in for throughput.
 - **Extensions not yet built** (no Fil-C lib in `/opt/fil`): gd, zip, sodium,
