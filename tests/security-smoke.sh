@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image=${1:?Usage: security-smoke.sh IMAGE}
+image=${1:?Usage: security-smoke.sh IMAGE [jit]}
+mode=${2:-stable}
 php=(docker run --rm --entrypoint /usr/local/bin/php "$image")
 
 "${php[@]}" -r '
@@ -9,12 +10,34 @@ if (ini_get("session.upload_progress.enabled") || ini_get("pcre.jit")) {
     fwrite(STDERR, "unsafe session upload progress or PCRE JIT setting\n");
     exit(1);
 }
+echo PHP_VERSION, " session upload progress and PCRE JIT off\n";
+'
+
+if [ "$mode" = jit ]; then
+  # JIT images run OPcache with the Fil-C persist fixes; generated code is
+  # compiled through filcc, so it stays instrumented. Prove a JIT compile
+  # produces a correct result.
+  "${php[@]}" -d opcache.enable_cli=1 -d opcache.jit=function -d opcache.jit_buffer_size=32M -r '
+if (!extension_loaded("Zend OPcache") || !ini_get("opcache.enable")) {
+    fwrite(STDERR, "JIT image without active OPcache\n");
+    exit(1);
+}
+function fib($n) { return $n < 2 ? $n : fib($n - 1) + fib($n - 2); }
+if (fib(20) !== 6765) {
+    fwrite(STDERR, "JIT-through-C produced a wrong result\n");
+    exit(1);
+}
+echo "OPcache on, JIT-through-C compile verified\n";
+'
+else
+  "${php[@]}" -r '
 if (extension_loaded("Zend OPcache") && ini_get("opcache.enable")) {
     fwrite(STDERR, "OPcache is enabled; the Fil-C port panics in zend_persist\n");
     exit(1);
 }
-echo PHP_VERSION, " session upload progress, PCRE JIT and OPcache off\n";
+echo "OPcache off\n";
 '
+fi
 
 case "$("${php[@]}" -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')" in
   5.*|7.*)

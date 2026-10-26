@@ -12,6 +12,11 @@ on:
         type: boolean
         required: false
         default: false
+      jit:
+        description: "Build JIT-through-C variants under experimental-only tags"
+        type: boolean
+        required: false
+        default: false
   push:
     tags: ['v*']
     branches: ['main']
@@ -37,24 +42,39 @@ jobs:
         env:
           ONLY: ${{ github.event.inputs.version }}
           EXPERIMENTAL: ${{ github.event.inputs.experimental }}
+          JIT: ${{ github.event.inputs.jit }}
         run: |
           python3 - <<'PY'
           import json, os
           data = json.load(open('versions.json'))
           only = os.environ.get('ONLY', '').strip()
           experimental = os.environ.get('EXPERIMENTAL') == 'true'
-          status = 'pending' if experimental else 'supported'
+          jit = os.environ.get('JIT') == 'true'
           rows = []
-          for v in data['versions']:
-              if v.get('status') != status:
-                  continue
-              if only and v['version'] != only:
-                  continue
-              for sapi in ('cli', 'fpm', 'apache', 'wordpress'):
-                  rows.append({'version': v['version'], 'series': v['series'], 'sapi': sapi,
-                               'wordpress_version': v['wordpress_version'],
-                               'wordpress_sha256': v['wordpress_sha256'],
-                               'tag_suffix': '-experimental' if experimental else ''})
+          if jit:
+              for v in data['versions']:
+                  if only and v['version'] != only:
+                      continue
+                  if not os.path.exists(f"patches/php-{v['version']}-opcache-jit-c-filc.patch"):
+                      continue
+                  for sapi in ('cli-jit', 'fpm-jit'):
+                      rows.append({'version': v['version'], 'series': v['series'], 'sapi': sapi,
+                                   'wordpress_version': v['wordpress_version'],
+                                   'wordpress_sha256': v['wordpress_sha256'],
+                                   'tag_suffix': '-experimental', 'php_jit': '1'})
+          else:
+              status = 'pending' if experimental else 'supported'
+              for v in data['versions']:
+                  if v.get('status') != status:
+                      continue
+                  if only and v['version'] != only:
+                      continue
+                  for sapi in ('cli', 'fpm', 'apache', 'wordpress'):
+                      rows.append({'version': v['version'], 'series': v['series'], 'sapi': sapi,
+                                   'wordpress_version': v['wordpress_version'],
+                                   'wordpress_sha256': v['wordpress_sha256'],
+                                   'tag_suffix': '-experimental' if experimental else '',
+                                   'php_jit': '0'})
           print('include=' + json.dumps(rows))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write('include=' + json.dumps(rows) + '\n')
@@ -91,6 +111,7 @@ jobs:
           target: ${{ matrix.sapi }}
           build-args: |
             PHP_VERSION=${{ matrix.version }}
+            PHP_JIT=${{ matrix.php_jit }}
             FILC_VERSION=${{ env.FILC_VERSION }}
             WORDPRESS_VERSION=${{ matrix.wordpress_version }}
             WORDPRESS_SHA256=${{ matrix.wordpress_sha256 }}
@@ -105,10 +126,10 @@ jobs:
       - name: Smoke test
         run: |
           case "${{ matrix.sapi }}" in
-            cli)
+            cli|cli-jit)
               docker run --rm --entrypoint php "$TAG" \
                 -r 'echo PHP_VERSION, " ok upload_progress=", (ini_get("session.upload_progress.enabled") ? "ON" : "0"), "\n";' ;;
-            fpm)
+            fpm|fpm-jit)
               workspace=$(mktemp -d -p /var/tmp filc-fpm-XXXXXX)
               name=filc-fpm-smoke
               trap 'docker rm -f "$name" >/dev/null 2>&1 || :; rm -rf "$workspace"' EXIT
@@ -137,7 +158,9 @@ jobs:
           esac
 
       - name: Security smoke test
-        run: bash tests/security-smoke.sh "$TAG"
+        run: |
+          mode=stable; [ '${{ matrix.php_jit }}' = 1 ] && mode=jit
+          bash tests/security-smoke.sh "$TAG" "$mode"
 
       - name: Push verified image
         run: |

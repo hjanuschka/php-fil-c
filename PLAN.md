@@ -404,3 +404,20 @@ have dodged, now that we stay on bookworm):
   security smoke rejects; they stay out of the CI publish matrix until
   the OPcache-on posture gets its own gate. PHP 8.5 would additionally
   need Filnix's hybrid-VM patch to keep the CALL VM.
+
+### JIT follow-up: 8.5 and CI publication
+
+- PHP 8.5.12 JIT works with Fil-C 0.686: vendored the 8.5 JIT-through-C
+  and CALL-VM (hybrid-vm) patches plus the shared ce-cache patch as
+  `patches/php-8.5.12-{opcache-ce-cache,opcache-jit-c,jit-hybrid-vm}-filc.patch`.
+  Our 8.5 base patch already carried the private-SHM OPcache hunks.
+  8.5 links OPcache statically, so the jit stages only emit a
+  `zend_extension` line when `opcache.so` exists.
+- `tests/security-smoke.sh IMAGE jit` requires active OPcache and a
+  correct JIT-compiled `fib(20)`; stable mode still rejects OPcache.
+  Verified: jit mode passes on all four jit images, stable mode rejects
+  them, and stable images still pass stable mode.
+- The workflow's `jit: true` dispatch publishes `cli-jit`/`fpm-jit`
+  with `-experimental` tags for every version that has
+  `php-<ver>-opcache-jit-c-filc.patch`; rows carry `php_jit` so the
+  build arg and gate mode follow the variant.

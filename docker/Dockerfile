@@ -98,7 +98,10 @@ RUN set -eux; \
     patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-filc.patch"; \
     if [ "${PHP_JIT}" = 1 ]; then \
       patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-opcache-ce-cache-filc.patch"; \
+      hybrid="/build/patches/php-${PHP_VERSION}-jit-hybrid-vm-filc.patch"; \
+      if [ -f "$hybrid" ]; then patch -p1 --silent -i "$hybrid"; fi; \
       patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-opcache-jit-c-filc.patch"; \
+      grep -q '#define ZEND_JIT_C_CC "clang"' ext/opcache/jit/zend_jit_c.c; \
       sed -i 's|#define ZEND_JIT_C_CC "clang"|#define ZEND_JIT_C_CC "/opt/fil/bin/filcc"|' ext/opcache/jit/zend_jit_c.c; \
     fi; \
     case "${PHP_VERSION}" in 5.*|7.2.*|7.3.*) sed -i -e 's/pharcmd=pharcmd$/pharcmd=/' -e 's/pharcmd_install=install-pharcmd$/pharcmd_install=/' configure ;; esac; \
@@ -246,20 +249,22 @@ CMD ["/opt/fil/apache/bin/httpd", "-DFOREGROUND"]
 FROM cli AS cli-jit
 COPY --from=php /opt/fil/ /opt/fil/
 COPY --from=php /opt/php-filc/lib/ /opt/php-filc/lib/
-RUN rm -rf /opt/fil/apache && \
-    ext_dir=$(find /opt/php-filc/lib/php/extensions -maxdepth 1 -type d -name 'no-debug-*' | head -1) && \
-    test -f "$ext_dir/opcache.so" && \
-    printf '[PHP]\nzend_extension = %s/opcache.so\nopcache.enable = 1\nopcache.enable_cli = 0\nopcache.jit = 1235\nopcache.jit_buffer_size = 64M\n' "$ext_dir" \
-      > /usr/local/etc/php/conf.d/zz-jit.ini
+RUN set -eux; rm -rf /opt/fil/apache; \
+    { so=$(find /opt/php-filc/lib/php/extensions -name opcache.so -print -quit 2>/dev/null || :); \
+      if [ -n "$so" ]; then printf '[PHP]\nzend_extension = %s\n' "$so"; else printf '[PHP]\n'; fi; \
+      printf 'opcache.enable = 1\nopcache.enable_cli = 0\nopcache.jit = 1235\nopcache.jit_buffer_size = 64M\n'; } \
+      > /usr/local/etc/php/conf.d/zz-jit.ini; \
+    /usr/local/bin/php -r 'exit(extension_loaded("Zend OPcache") && ini_get("opcache.enable") ? 0 : 1);'
 
 FROM fpm AS fpm-jit
 COPY --from=php /opt/fil/ /opt/fil/
 COPY --from=php /opt/php-filc/lib/ /opt/php-filc/lib/
-RUN rm -rf /opt/fil/apache && \
-    ext_dir=$(find /opt/php-filc/lib/php/extensions -maxdepth 1 -type d -name 'no-debug-*' | head -1) && \
-    test -f "$ext_dir/opcache.so" && \
-    printf '[PHP]\nzend_extension = %s/opcache.so\nopcache.enable = 1\nopcache.enable_cli = 0\nopcache.jit = 1235\nopcache.jit_buffer_size = 64M\n' "$ext_dir" \
-      > /usr/local/etc/php/conf.d/zz-jit.ini
+RUN set -eux; rm -rf /opt/fil/apache; \
+    { so=$(find /opt/php-filc/lib/php/extensions -name opcache.so -print -quit 2>/dev/null || :); \
+      if [ -n "$so" ]; then printf '[PHP]\nzend_extension = %s\n' "$so"; else printf '[PHP]\n'; fi; \
+      printf 'opcache.enable = 1\nopcache.enable_cli = 0\nopcache.jit = 1235\nopcache.jit_buffer_size = 64M\n'; } \
+      > /usr/local/etc/php/conf.d/zz-jit.ini; \
+    /usr/local/bin/php -r 'exit(extension_loaded("Zend OPcache") && ini_get("opcache.enable") ? 0 : 1);'
 
 # ---------------------------------------------------------------------------
 # wordpress
