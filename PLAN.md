@@ -383,3 +383,24 @@ have dodged, now that we stay on bookworm):
   longer auto-installs a fixed admin account or writes a default DB
   password. CI must test images before pushing;
   unversioned tags are reserved for the designated default PHP version.
+
+### JIT-through-C checkpoint (PHP 8.4.27)
+
+- Vendored Filnix's `php-8.4-opcache-ce-cache-filc.patch` and
+  `php-8.4-opcache-jit-c-filc.patch` as `patches/php-8.4.27-opcache-*`;
+  both apply after our combined Fil-C patch (which already contained the
+  private-SHM OPcache mapping hunks). `ZEND_JIT_C_CC` points at
+  `/opt/fil/bin/filcc`.
+- `PHP_JIT=1` build arg plus `cli-jit`/`fpm-jit` targets produce images
+  with OPcache enabled and `opcache.jit=1235`; the runtime carries the
+  Fil-C toolchain (~3 GB) because the JIT compiles each hot function's C
+  at request time.
+- Local verification: OPcache loads, FPM serves with opcache=1 jit=1235,
+  and `Zend/bench.php` with `opcache.jit=function` runs mandel 47x and
+  simple 29x faster than the interpreter; strcat (allocator-bound) is
+  unchanged. `zend_jit_c: unsupported IR_EXITCALL in JIT$$trace_exit` is
+  the known tracing-exit limitation; function/1235 modes are unaffected.
+- The jit variants intentionally enable OPcache, which the stable-tag
+  security smoke rejects; they stay out of the CI publish matrix until
+  the OPcache-on posture gets its own gate. PHP 8.5 would additionally
+  need Filnix's hybrid-VM patch to keep the CALL VM.

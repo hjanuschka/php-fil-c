@@ -106,6 +106,32 @@ These images contain end-of-life OpenSSL with unreviewed cryptographic
 timing properties; **do not use them for production or untrusted
 traffic**. Earlier PHP 5.x versions have no Fil-C port or matrix entry.
 
+### Experimental JIT-through-C (PHP 8.4)
+
+Fil-C cannot execute generated machine code, but OPcache's JIT IR can be
+emitted as C, compiled with `filcc` at run time and `dlopen`ed -- generated
+code stays fully Fil-C-instrumented, so a JIT bug becomes a wrong result or
+a panic, never memory corruption. The patches come from
+[Filnix](https://github.com/mbrock/filnix) (`patches/php-8.4.27-opcache-*`),
+which also fixes the OPcache persist panics (private SHM mapping, exact
+pointer table for pending class-cache keys). Build locally:
+
+```sh
+docker build --target cli-jit --build-arg PHP_VERSION=8.4.27 --build-arg PHP_JIT=1 -t php-filc:cli-jit .
+docker build --target fpm-jit --build-arg PHP_VERSION=8.4.27 --build-arg PHP_JIT=1 -t php-filc:fpm-jit .
+```
+
+Measured on `Zend/bench.php` with `opcache.jit=function`: mandel 0.187 s to
+0.004 s, simple 0.029 s to 0.001 s, fibo(30) 0.211 s to 0.078 s; string- and
+allocation-bound code is unchanged. The images default to `opcache.jit=1235`
+(hot functions only) because every compile runs the Fil-C compiler (0.1-1 s
+per function) synchronously in the request that made the function hot;
+`PHP_JIT_CC="ccache filcc"` can reuse objects. The images ship the Fil-C
+toolchain (~3 GB) and keep OPcache per-process (capabilities do not cross
+processes, so FPM workers do not share compiled code). Experimental: not
+published, not part of the CI matrix, and the stable images keep OPcache
+and JIT off.
+
 ## Images
 
 `ghcr.io/hjanuschka/php-fil-c`, `linux/amd64`. Tags are
@@ -206,13 +232,15 @@ port by Filip Pizlo, and informed by
 
 ## Known limitations
 
-- **No JIT.** `--without-pcre-jit --disable-opcache-jit` -- Fil-C cannot
-  execute generated machine code. A JIT-through-C path exists upstream
-  ([PLAN.md](PLAN.md) P1).
-- **OPcache off.** The port panics when OPcache persists certain classes
-  (`zend_accel_pending_ce_cache_commit` writes through a null object).
-  Builds pass `--disable-opcache`, and since PHP 8.5 compiles OPcache
-  unconditionally, images also ship `opcache.enable=0`.
+- **No native JIT.** Fil-C cannot execute generated machine code, so
+  OPcache's native JIT and PCRE's JIT stay off (`--without-pcre-jit`).
+  An experimental **JIT-through-C** variant exists for 8.4 -- see below.
+- **OPcache off in default images.** The port panics when OPcache persists
+  certain classes (`zend_accel_pending_ce_cache_commit` writes through a
+  null object). Builds pass `--disable-opcache`, and since PHP 8.5 compiles
+  OPcache unconditionally, images also ship `opcache.enable=0`. The jit
+  variant carries [Filnix](https://github.com/mbrock/filnix) persist fixes
+  and runs with OPcache on.
 - **Performance.** Capability checks + GC make PHP ~1.5-4x slower than native.
   This is a safety research build, not a production drop-in for throughput.
 - **Extensions not yet built** (no Fil-C lib in `/opt/fil`): gd, zip, sodium,

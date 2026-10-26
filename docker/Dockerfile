@@ -79,6 +79,10 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------
 FROM deps AS php
 ARG PHP_VERSION
+# PHP_JIT=1 applies Filnix's OPcache + JIT-through-C patches: the JIT IR is
+# emitted as C, compiled with filcc at run time and dlopen'ed, so generated
+# code stays Fil-C-instrumented. Requires patches/php-<ver>-opcache-*.patch.
+ARG PHP_JIT=0
 COPY build.sh /build/build.sh
 COPY versions.json /build/versions.json
 COPY patches/ /build/patches/
@@ -92,6 +96,11 @@ RUN set -eux; \
     cve="/build/patches/cve-backports/php-${PHP_VERSION}-CVE-2026-109618-109619.patch"; \
     if [ -f "$cve" ]; then echo "applying CVE-2026-109618/109619 backport"; patch -p1 --silent -i "$cve"; fi; \
     patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-filc.patch"; \
+    if [ "${PHP_JIT}" = 1 ]; then \
+      patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-opcache-ce-cache-filc.patch"; \
+      patch -p1 --silent -i "/build/patches/php-${PHP_VERSION}-opcache-jit-c-filc.patch"; \
+      sed -i 's|#define ZEND_JIT_C_CC "clang"|#define ZEND_JIT_C_CC "/opt/fil/bin/filcc"|' ext/opcache/jit/zend_jit_c.c; \
+    fi; \
     case "${PHP_VERSION}" in 5.*|7.2.*|7.3.*) sed -i -e 's/pharcmd=pharcmd$/pharcmd=/' -e 's/pharcmd_install=install-pharcmd$/pharcmd_install=/' configure ;; esac; \
     sed -i 's|PHP_INTL_CXX_FLAGS="\$INTL_COMMON_FLAGS \$PHP_INTL_STDCXX \$ICU_CXXFLAGS"|PHP_INTL_CXX_FLAGS="$INTL_COMMON_FLAGS $PHP_INTL_STDCXX $ICU_CXXFLAGS -std=c++17"|' configure; \
     case "${PHP_VERSION}" in \
@@ -127,6 +136,7 @@ RUN set -eux; \
       5.*|7.*) SSL_FLAGS="--with-openssl=/opt/fil"; EOL_FIXES="ac_cv_func_strlcpy=no"; BZ2_FLAG=""; EOL_CPPFLAGS="-I/opt/fil/include -D_DEFAULT_SOURCE" ;; \
       *) SSL_FLAGS="--with-openssl"; EOL_FIXES=""; BZ2_FLAG="--with-bz2"; EOL_CPPFLAGS="" ;; \
     esac; \
+    if [ "${PHP_JIT}" = 1 ]; then OPCACHE_FLAGS=""; else OPCACHE_FLAGS="--disable-opcache-jit --disable-opcache"; fi; \
     case "${PHP_VERSION}" in \
       5.*|7.2.*|7.3.*) \
         session_flag="--enable-session"; \
@@ -147,7 +157,7 @@ RUN set -eux; \
     CPPFLAGS="${EOL_CPPFLAGS}" CXXFLAGS="-std=c++17" LIBS="-lc++abi" \
     ./configure --prefix=/opt/php-filc \
       --enable-cli --enable-fpm --with-apxs2=/opt/fil/apache/bin/apxs \
-      --disable-fiber-asm --without-pcre-jit --disable-opcache-jit --disable-opcache \
+      --disable-fiber-asm --without-pcre-jit ${OPCACHE_FLAGS} \
       --disable-cgi --disable-phpdbg \
       ${SSL_FLAGS} --with-zlib ${BZ2_FLAG} --with-curl \
       --with-sqlite3 --with-pdo-sqlite \
@@ -227,6 +237,29 @@ RUN set -eux; \
 EXPOSE 8080
 WORKDIR /var/www/html
 CMD ["/opt/fil/apache/bin/httpd", "-DFOREGROUND"]
+
+# ---------------------------------------------------------------------------
+# jit variants: OPcache enabled (Fil-C persist fixes) + JIT-through-C. The
+# image ships the Fil-C toolchain because the JIT compiles C per hot function
+# at run time. Build with --build-arg PHP_JIT=1. Experimental.
+# ---------------------------------------------------------------------------
+FROM cli AS cli-jit
+COPY --from=php /opt/fil/ /opt/fil/
+COPY --from=php /opt/php-filc/lib/ /opt/php-filc/lib/
+RUN rm -rf /opt/fil/apache && \
+    ext_dir=$(find /opt/php-filc/lib/php/extensions -maxdepth 1 -type d -name 'no-debug-*' | head -1) && \
+    test -f "$ext_dir/opcache.so" && \
+    printf '[PHP]\nzend_extension = %s/opcache.so\nopcache.enable = 1\nopcache.enable_cli = 0\nopcache.jit = 1235\nopcache.jit_buffer_size = 64M\n' "$ext_dir" \
+      > /usr/local/etc/php/conf.d/zz-jit.ini
+
+FROM fpm AS fpm-jit
+COPY --from=php /opt/fil/ /opt/fil/
+COPY --from=php /opt/php-filc/lib/ /opt/php-filc/lib/
+RUN rm -rf /opt/fil/apache && \
+    ext_dir=$(find /opt/php-filc/lib/php/extensions -maxdepth 1 -type d -name 'no-debug-*' | head -1) && \
+    test -f "$ext_dir/opcache.so" && \
+    printf '[PHP]\nzend_extension = %s/opcache.so\nopcache.enable = 1\nopcache.enable_cli = 0\nopcache.jit = 1235\nopcache.jit_buffer_size = 64M\n' "$ext_dir" \
+      > /usr/local/etc/php/conf.d/zz-jit.ini
 
 # ---------------------------------------------------------------------------
 # wordpress
