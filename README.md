@@ -36,21 +36,24 @@ mitigation. The **8.0** and **8.1** builds use the tracked EOL backports in
 [`patches/cve-backports/`](patches/cve-backports/); these fixes were not
 released by upstream PHP for those branches.
 
-| PHP | Release | CVE fixes | Fil-C patch | CLI | FPM | Apache (mod_php) | WordPress |
-|-----|---------|:---------:|-------------|:---:|:---:|:----------------:|:---------:|
-| **8.5.12** | 2026-10 | ✅ 109618 · 109619 | [`php-8.5.12-filc.patch`](patches/php-8.5.12-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.4.27** | 2026-10 | ✅ 109618 · 109619 | [`php-8.4.27-filc.patch`](patches/php-8.4.27-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.3.36** | 2026-10 | ✅ 109618 · 109619 | [`php-8.3.36-filc.patch`](patches/php-8.3.36-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.2.35** | 2026-10 | ✅ 109618 · 109619 | [`php-8.2.35-filc.patch`](patches/php-8.2.35-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.1.32** | EOL | ✅ backported 109618 · 109619 | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **8.0.30** | EOL | ✅ backported 109618 · 109619 | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ |
-| **7.4.33** | EOL | backport applied | [`php-7.4.33-filc.patch`](patches/php-7.4.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| **7.3.33** | EOL | backport applied | [`php-7.3.33-filc.patch`](patches/php-7.3.33-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| **7.2.34** | EOL | backport applied | [`php-7.2.34-filc.patch`](patches/php-7.2.34-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| **5.6.40** | EOL | backport applied | [`php-5.6.40-filc.patch`](patches/php-5.6.40-filc.patch) | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| older 5.x | EOL | backport pending | none | ⏳ | ⏳ | ⏳ | ⏳ |
+| PHP | Release | CVE fixes | Fil-C patch | CLI | FPM | Apache (mod_php) | WordPress | Tags |
+|-----|---------|:---------:|-------------|:---:|:---:|:----------------:|:---------:|------|
+| **8.5.12** | 2026-10 | ✅ 109618 · 109619 | [`php-8.5.12-filc.patch`](patches/php-8.5.12-filc.patch) | ✅ | ✅ | ✅ | ✅ | stable |
+| **8.4.27** | 2026-10 | ✅ 109618 · 109619 | [`php-8.4.27-filc.patch`](patches/php-8.4.27-filc.patch) | ✅ | ✅ | ✅ | ✅ | stable (default) |
+| **8.3.36** | 2026-10 | ✅ 109618 · 109619 | [`php-8.3.36-filc.patch`](patches/php-8.3.36-filc.patch) | ✅ | ✅ | ✅ | ✅ | stable |
+| **8.2.35** | 2026-10 | ✅ 109618 · 109619 | [`php-8.2.35-filc.patch`](patches/php-8.2.35-filc.patch) | ✅ | ✅ | ✅ | ✅ | stable |
+| **8.1.32** | EOL | ✅ backported 109618 · 109619 | [`php-8.1.32-filc.patch`](patches/php-8.1.32-filc.patch) | ✅ | ✅ | ✅ | ✅ | stable |
+| **8.0.30** | EOL | ✅ backported 109618 · 109619 | [`php-8.0.30-filc.patch`](patches/php-8.0.30-filc.patch) | ✅ | ✅ | ✅ | ✅ | stable |
+| **7.4.33** | EOL | ✅ backported 109618 · 109619 | [`php-7.4.33-filc.patch`](patches/php-7.4.33-filc.patch) | ✅ | ✅ | ✅ | ✅ | [experimental](#opt-in-experimental-legacy-tags) |
+| **7.3.33** | EOL | ✅ backported 109618 · 109619 | [`php-7.3.33-filc.patch`](patches/php-7.3.33-filc.patch) | ✅ | ✅ | ✅ | ✅ | [experimental](#opt-in-experimental-legacy-tags) |
+| **7.2.34** | EOL | ✅ backported 109618 · 109619 | [`php-7.2.34-filc.patch`](patches/php-7.2.34-filc.patch) | ✅ | ✅ | ✅ | ✅ | [experimental](#opt-in-experimental-legacy-tags) |
+| **5.6.40** | EOL | ✅ backported 109618 · 109619 | [`php-5.6.40-filc.patch`](patches/php-5.6.40-filc.patch) | ✅ | ✅ | ✅ | ✅ | [experimental](#opt-in-experimental-legacy-tags) |
+| older 5.x | EOL | backport pending | none | ⏳ | ⏳ | ⏳ | ⏳ | none |
 
-Legend: ✅ supported and published · ⚠️ experimental only, not production-safe · ⏳ no port.
+Legend: ✅ published and CI-smoke-tested (WordPress install + admin login,
+HTTPS, hardening checks) · ⏳ no port. `stable` tags are the supported
+matrix; `experimental` tags run EOL PHP + EOL OpenSSL and are **not for
+production** -- see the per-version notes below.
 `versions.json` is the machine-readable source of truth for this table.
 
 **Why these versions?** 8.2.35, 8.3.36, 8.4.27 and 8.5.12 are exactly the
@@ -60,8 +63,8 @@ those lines means backporting the CVE patches *and* the Fil-C port, plus
 building libxml/OpenSSL versions that old PHP can compile against inside
 the image -- see [PLAN.md](PLAN.md).
 
-**7.4 is not production-ready.** CLI/FPM/Apache and WordPress 7.1.3 run
-locally, including installation and admin login over MariaDB. The Fil-C
+**7.4 is published as experimental.** CLI/FPM/Apache and WordPress 7.1.3
+pass CI, including installation and admin login over MariaDB. The Fil-C
 OpenSSL 1.1.1w port avoids capability-losing pointer masks in NIST reductions;
 HTTPS curl and NIST modulus correctness tests pass. Its constant-time
 properties are not independently reviewed, and OpenSSL 1.1.1w is EOL.
@@ -69,35 +72,39 @@ The EOL PHP CVE/multipart backports apply; the tracked Fil-C allocator
 enforces `memory_limit` and reports usage across repeated requests.
 The build omits bz2 until a Fil-C-built libbz2 is available.
 
-**7.3 and 7.2 are experimental only.** Local CLI/FPM/Apache images and
-WordPress 6.9.10 installation and admin login work with MariaDB. Fil-C
+**7.3 and 7.2 are published as experimental.** CLI/FPM/Apache images and
+WordPress 6.9.10 installation and admin login pass CI with MariaDB. Fil-C
 OpenSSL 1.1.1w passes HTTPS curl smoke tests; tracked allocations enforce
-`memory_limit` and report nonzero usage. EOL PHP CVE/multipart backports apply, but the
-legacy OpenSSL port and security regression testing require review.
-Do not expose these experimental images to untrusted requests.
+`memory_limit` and report nonzero usage. EOL PHP CVE/multipart backports
+apply, but the legacy OpenSSL port and security regression testing require
+review. Do not expose these experimental images to untrusted requests.
 
-**5.6 is experimental only.** A selected-extension `--disable-all` image
-runs WordPress 6.2.14 with MariaDB locally, including installation and
+**5.6 is published as experimental.** A selected-extension `--disable-all`
+image runs WordPress 6.2.14 with MariaDB in CI, including installation,
 serving a page and authenticated admin dashboard. Session is enabled
 with upload progress disabled, and tracked Fil-C allocations enforce
-`memory_limit`. The PHP CVE/multipart backports apply and patched OpenSSL 1.0.2u passes HTTPS smoke tests.
-OpenSSL 1.0.2u is long EOL; the NIST timing behavior and unbackported
-security issues need review. Do not process untrusted requests with it.
+`memory_limit`. The PHP CVE/multipart backports apply and patched OpenSSL
+1.0.2u passes HTTPS smoke tests. OpenSSL 1.0.2u is long EOL; the NIST
+timing behavior and unbackported security issues need review. Do not
+process untrusted requests with it.
 PCRE JIT is disabled in runtime images because Fil-C cannot allocate
 executable JIT memory; otherwise WordPress login can emit warnings before
 setting authentication cookies.
 
 ### Opt-in experimental legacy tags
 
-Run `build-and-publish` manually with `experimental: true` to build and test
-PHP 7.4.33, 7.3.33, 7.2.34 and 5.6.40. Successful builds push only tags
-ending in `-bookworm-experimental`, for example
+PHP 7.4.33, 7.3.33, 7.2.34 and 5.6.40 are published under tags ending in
+`-bookworm-experimental`, for example
 `ghcr.io/hjanuschka/php-fil-c:7.2.34-wordpress-bookworm-experimental`.
-They do not receive stable version, series or default tags, and remain
-`pending` in `versions.json`. These images have end-of-life OpenSSL and
-unreviewed cryptographic timing properties; **do not use them for
-production or untrusted traffic**. Earlier PHP 5.x versions have no Fil-C
-port or build matrix entry.
+Each pairs with the newest WordPress its PHP supports: 7.1.3 on PHP 7.4,
+6.9.10 on 7.3/7.2, and 6.2.14 on 5.6. Rebuild and republish them by
+running `build-and-publish` manually with `experimental: true`; every
+image must pass the same CI smoke gates (WordPress install + admin login,
+HTTPS, hardening checks) before it is pushed. They never receive stable
+version, series or default tags, and remain `pending` in `versions.json`.
+These images contain end-of-life OpenSSL with unreviewed cryptographic
+timing properties; **do not use them for production or untrusted
+traffic**. Earlier PHP 5.x versions have no Fil-C port or matrix entry.
 
 ## Images
 
